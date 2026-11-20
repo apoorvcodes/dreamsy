@@ -254,7 +254,8 @@ touch controls sit in the window like engine-web's container. The pause menu is 
 - **OPEN:** WebGPU from the start or after WebGL2 parity (default: after).
 - **OPEN:** whether the harness moves screenshots to the native tool (offscreen rendering) or keeps headless Chromium.
 - **OPEN:** remove the 3D entity types from the format at E7 (format version bump) or immediately.
-- **OPEN:** whether the engine/format/kits are released as open source, and under which license (MIT or Apache-2.0).
+- whether the engine/format/kits are released as open source, and under which license (MIT or Apache-2.0): settled,
+  Dreamsy's own code is source-available under PolyForm Noncommercial 1.0.0 ([LICENSE](../LICENSE)).
 
 ### 14.12 Full engine scope (not a toy)
 

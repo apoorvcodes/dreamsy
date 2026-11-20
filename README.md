@@ -33,9 +33,9 @@ Dreamsy is two things that fit together:
 - **An engine.** A small C++20 core for 2D and 2.5D games (side, top-down, oblique and isometric). Games are written in
   sandboxed Luau, use Box2D physics, and ship as one `.dpk` file that is usually **30–220 KB**. The same file runs on a
   phone, in a browser (WebAssembly) and headless for automated playtests.
-- **A builder.** An AI harness that turns a sentence into a playable game: it picks one of **21 genre kits**, writes the
-  scenes and scripts, draws the sprites, composes chiptune music, then **plays the game itself** to catch errors before you
-  ever see it. It runs on your own model key, or inside your own assistant over MCP.
+- **A builder.** An AI harness that turns a sentence into a playable game: it picks one of **15 genre kits** (built on 6
+  foundation kits), writes the scenes and scripts, draws the sprites, composes chiptune music, then **plays the game
+  itself** to catch errors before you ever see it. It runs on your own model key, or inside your own assistant over MCP.
 
 ```text
   you  ──▶ "a frog that hops between clouds collecting strawberries"
@@ -183,14 +183,14 @@ review. See [harness/DESIGN.md](harness/DESIGN.md).
 |---|---|
 | [`engine/`](engine/README.md) | The C++20 engine: one core for web (WASM), iOS, Android and headless tools (`dreamsy-tool`). |
 | [`format/`](format/LUAU_API.md) | `@dreamsy/format`: package schemas, entity catalog, validator, edit ops. `LUAU_API.md` is the scripting contract. |
-| `kits/` | The 21 kits: Luau libraries, docs, content schemas. |
+| `kits/` | 15 genre kits plus 6 foundation kits: Luau libraries, docs, content schemas. |
 | [`harness/`](harness/DESIGN.md) | The AI builder, the MCP server and the CLI. |
 | [`apps/site/`](apps/site/README.md) | The website (landing, library, kits, docs) and the editor at `/editor`. Next.js. |
 | [`services/cloud/`](services/cloud/README.md) | Cloudflare Worker: save games without accounts, publish them, remix them. |
 | [`packages/mcp/`](packages/mcp/README.md) | The `dreamsy-mcp` npm package: the MCP server plus a prebuilt engine per platform. |
 | `games/` | `examples/` (one golden game per kit), `showcase/` (generated games), `mine/` (yours, gitignored). |
 | `taste/` | House-style packs and reference images for art direction. |
-| [`docs/`](docs/README.md) | The spec by topic, indexed from [docs/README.md](docs/README.md), and a C++ guide for TypeScript developers. |
+| [`docs/`](docs/README.md) | The spec by topic (principles, roadmap, known gaps in its index), and a C++ guide for TypeScript developers. |
 | `third_party/` | Vendored libraries (Luau, Box2D, sokol, miniaudio…). Don't modify. |
 
 The earlier hosted platform (`services/api`, `services/gameserver`, `apps/web`, `apps/mobile`, `deploy/`,
@@ -232,18 +232,28 @@ Engine builds, tests and conformance checks: [engine/README.md](engine/README.md
 - The game package format is the central contract. Don't change `format/` without updating docs/format.md §3.
 - 2D and 2.5D only; the format keeps 3D types, but the engine rejects 3D packages.
 - `third_party/` is vendored; don't modify it.
-- Each package has its own README with the details.
+- Each package has its own README with the details. The full rules are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## ✦ Contributing
 
 Bug reports, kits, example games and fixes are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md), the
 [Code of Conduct](CODE_OF_CONDUCT.md) and [SECURITY.md](SECURITY.md) for reporting vulnerabilities. Changes are listed
-in [CHANGELOG.md](CHANGELOG.md).
+in [CHANGELOG.md](CHANGELOG.md). Known gaps and the roadmap are in [docs/README.md](docs/README.md).
 
 ## ✦ License
 
-Dreamsy's own code is under the [PolyForm Noncommercial License 1.0.0](LICENSE): free to use, change and share for
-personal, hobby, research, educational and nonprofit purposes; **commercial use is not permitted**. Libraries vendored in
-`third_party/` keep their own licenses.
+Dreamsy is source-available, not open source. Its own code is under the
+[PolyForm Noncommercial License 1.0.0](LICENSE): free to use, change and share for personal, hobby, research,
+educational and nonprofit purposes; **commercial use is not permitted**. Libraries vendored in `third_party/` keep their
+own licenses.
+
+**Is Dreamsy open source?** No. The source is public, but PolyForm Noncommercial is not an OSI-approved open source
+license because it forbids commercial use.
+
+**Can I sell a game I made with Dreamsy?**
+<!-- TODO(owners): decide and write the answer here. Open points: do the terms cover games built with Dreamsy, or only
+Dreamsy's own code (engine, kits and generated scaffolding ship inside every .dpk)? Is a commercial license available,
+and from whom? -->
+> **TODO (maintainers):** not decided yet. Ask in [Discussions](https://github.com/apoorvcodes/dreamsy-mono/discussions).
 
 <p align="center"><sub>made with tiny pixels ✦ dreamsy</sub></p>

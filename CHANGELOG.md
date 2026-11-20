@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.1.0 — 2026-11-19 ✦ first open release
+## v0.1.0 — 2026-11-19 ✦ first public release
 
 **Engine**
 - Native C++20 engine for 2D and 2.5D games (side, top-down, oblique, isometric) replacing the TypeScript engine:
