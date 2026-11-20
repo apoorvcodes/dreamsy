@@ -37,4 +37,8 @@ jobs:
           cmake --preset release -DDREAMSY_BUILD_PLAYER=OFF -DDREAMSY_BUILD_TESTS=OFF
           cmake --build --preset release --target dreamsy-tool
       - run: pnpm -r typecheck
-      - run: pnpm -r test
+      - run: pnpm -r --filter '!@dreamsy/api' test
+      # The earlier platform's API tests run Postgres in-process (PGlite), which can exceed vitest's default 5 s / 10 s
+      # timeouts on a loaded machine, so they get more room here.
+      - name: services/api test
+        run: pnpm -C services/api exec vitest run --testTimeout 60000 --hookTimeout 60000
