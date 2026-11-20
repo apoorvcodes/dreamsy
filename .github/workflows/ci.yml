@@ -1,0 +1,40 @@
+# Every package's typecheck and tests, on every pull request and every push to main. No path filters, so this check
+# always reports and can be required. Engine builds, sanitizers and conformance are in engine.yml.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  ci:
+    name: typecheck + test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      WRANGLER_SEND_METRICS: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # The harness tests playtest games with the native tool (no player, so no graphics stack needed).
+      - name: build dreamsy-tool
+        working-directory: engine
+        run: |
+          cmake --preset release -DDREAMSY_BUILD_PLAYER=OFF -DDREAMSY_BUILD_TESTS=OFF
+          cmake --build --preset release --target dreamsy-tool
+      - run: pnpm -r typecheck
+      - run: pnpm -r test
