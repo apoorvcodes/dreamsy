@@ -3,7 +3,7 @@
 #   ./scripts/dev.sh            (Ctrl+C stops everything)
 #   ./scripts/dev.sh --reseed   (publish the showcase games again)
 #   ./scripts/dev.sh --tunnel   (phone on any network: Metro over a Cloudflare quick tunnel)
-#   ./scripts/dev.sh --prod     (app uses a hosted api/play.dreamsy.dev instead of this laptop; prod is down, STATUS.md)
+#   ./scripts/dev.sh --prod     (app uses a hosted api/play.dreamsy.dev instead of this laptop; prod is down)
 # Needs Emscripten 4.0.11 (EMSDK in the environment, or ~/emsdk): the engine is the C++ web player, built here.
 set -euo pipefail
 set -m   # job control: each background server gets its own process group, so cleanup kills the whole tree

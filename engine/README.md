@@ -1,7 +1,7 @@
 # Dreamsy engine v2 (C++)
 
 The native 2D/2.5D engine: one C++20 core for web (WebAssembly), iOS, Android and headless game
-servers. Design and roadmap: `DREAMSY.MD` §14. New to C++? Start with `docs/cpp-for-ts-devs.md`.
+servers. Design and roadmap: [docs/engine.md](../docs/engine.md) §14 (spec index: [docs/README.md](../docs/README.md)). New to C++? Start with `docs/cpp-for-ts-devs.md`.
 
 Status: **E0 (scaffold), E1 (packages), E2 (scripting), E3 (world + physics) done; E4 (renderer) foundation done; E5 input + platform UI (keys, mouse, touch, on-screen controls, gestures, UI entities, dialogs, toasts, pause) done, audio pending; E7 2.5D minimal slice done (package `view`, `z`/`height`, blocks, raised tile maps, shadows; docs/engine.md §14.5); E6 parity done: the harness, the app and share links run on this engine and engine-web (the TypeScript engine) was deleted 2026-11-18 (tag `engine-web-final`).**
 It loads and validates every game in `games/` (same verdicts as the TypeScript validator), reads/writes

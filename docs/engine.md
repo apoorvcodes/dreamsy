@@ -1,6 +1,6 @@
 # Dreamsy — Engine (C++ 2D/2.5D)
 
-Part of the Dreamsy spec. Section numbers are shared across the spec files; [DREAMSY.MD](../DREAMSY.MD) maps each
+Part of the Dreamsy spec. Section numbers are shared across the spec files; [docs/README.md](README.md) maps each
 section to its file.
 
 ## 14. Engine v2 — native C++ 2D/2.5D engine with authoritative multiplayer (spec, 2026-11-17)
@@ -36,7 +36,7 @@ same packages.
 | Zip / data | miniz (zip), a small TOML reader for `dreamsy.toml`, a JSON parser (simdjson or yyjson) |
 | Build | CMake + Ninja; Emscripten for web; Xcode / Android NDK via CMake toolchains |
 
-All third-party code is vendored under `third_party/` (not modified, per CLAUDE.md).
+All third-party code is vendored under `third_party/` (not modified; see CONTRIBUTING.md).
 
 ### 14.2 Code style
 
@@ -198,7 +198,7 @@ Packages and scripts are untrusted (AI- and user-generated).
 
 ### 14.10 Slices
 
-Each slice ends with tests passing and is built one at a time (CLAUDE.md).
+Each slice ends with tests passing and is built one at a time (docs/README.md).
 
 | Slice | Delivers | Done when |
 |---|---|---|

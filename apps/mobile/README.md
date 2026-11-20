@@ -34,7 +34,7 @@ native dependencies.
 The same app, built for the browser for people without the native app (phones and laptops):
 `pnpm -C apps/mobile build:web` → `apps/mobile/dist` (SPA, prod API + engine URLs passed on the command
 line, so `.env.local` doesn't leak in), served as static files (Caddy `pwa.dreamsy.dev` in `deploy/Caddyfile`;
-prod is down and there is no deploy script for now, see STATUS.md). Shell, manifest and icons are in `public/`.
+prod is down and there is no deploy script for now). Shell, manifest and icons are in `public/`.
 
 Web-only files (`*.web.ts(x)`, picked by Metro on web): `EngineView.web.tsx` (the player in an
 `<iframe>`, engine messages via `postMessage`, keyboard focus), `auth/tokenStore.web.ts` (token in

@@ -12,7 +12,7 @@
   <a href="#-make-games-three-ways">Three ways to make games</a> ·
   <a href="#-gallery">Gallery</a> ·
   <a href="#-how-it-works">How it works</a> ·
-  <a href="DREAMSY.MD">Spec</a> ·
+  <a href="docs/README.md">Spec</a> ·
   <a href="#-license">License</a>
 </p>
 
@@ -190,7 +190,7 @@ review. See [harness/DESIGN.md](harness/DESIGN.md).
 | [`packages/mcp/`](packages/mcp/README.md) | The `dreamsy-mcp` npm package: the MCP server plus a prebuilt engine per platform. |
 | `games/` | `examples/` (one golden game per kit), `showcase/` (generated games), `mine/` (yours, gitignored). |
 | `taste/` | House-style packs and reference images for art direction. |
-| `docs/` | The spec by topic, indexed from [DREAMSY.MD](DREAMSY.MD), and a C++ guide for TypeScript developers. |
+| [`docs/`](docs/README.md) | The spec by topic, indexed from [docs/README.md](docs/README.md), and a C++ guide for TypeScript developers. |
 | `third_party/` | Vendored libraries (Luau, Box2D, sokol, miniaudio…). Don't modify. |
 
 The earlier hosted platform (`services/api`, `services/gameserver`, `apps/web`, `apps/mobile`, `deploy/`,

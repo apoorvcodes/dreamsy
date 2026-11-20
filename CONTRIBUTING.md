@@ -5,7 +5,7 @@ all welcome.
 
 ## Before you start
 
-- Read [DREAMSY.MD](DREAMSY.MD): it is the overview and the map of the spec in `docs/`, which is the source of truth.
+- Read [docs/README.md](docs/README.md): the spec index and the map of the spec in `docs/`, which is the source of truth.
 - For anything bigger than a small fix, open an issue first so we can agree on the approach.
 - Be kind: this project follows the [Code of Conduct](CODE_OF_CONDUCT.md).
 

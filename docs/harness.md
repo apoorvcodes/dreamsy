@@ -1,6 +1,6 @@
 # Dreamsy — Generation (the harness)
 
-Part of the Dreamsy spec. Section numbers are shared across the spec files; [DREAMSY.MD](../DREAMSY.MD) maps each
+Part of the Dreamsy spec. Section numbers are shared across the spec files; [docs/README.md](README.md) maps each
 section to its file.
 
 ## 5. Generation
