@@ -1,4 +1,4 @@
-export const GITHUB = "https://github.com/apoorvcodes/dreamsy-mono";
+export const GITHUB = "https://github.com/apoorvcodes/dreamsy";
 export const MCP_COMMAND = "claude mcp add dreamsy -- npx -y dreamsy-mcp";
 
 export type Kit = { id: string; blurb: string; group: "genre" | "foundation" };

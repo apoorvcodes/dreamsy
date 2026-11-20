@@ -1,6 +1,6 @@
 {
   "name": "dreamsy-mcp",
-  "version": "0.1.4",
+  "version": "0.2.0",
   "description": "Make 2D and 2.5D games with your own AI assistant: the Dreamsy engine as MCP tools.",
   "keywords": [
     "mcp",
@@ -28,10 +28,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/apoorvcodes/dreamsy-mono.git",
+    "url": "git+https://github.com/apoorvcodes/dreamsy.git",
     "directory": "packages/mcp"
   },
-  "homepage": "https://github.com/apoorvcodes/dreamsy-mono/tree/main/packages/mcp#readme",
+  "homepage": "https://github.com/apoorvcodes/dreamsy/tree/main/packages/mcp#readme",
   "scripts": {
     "build": "node scripts/build.mjs",
     "pack:all": "node scripts/build.mjs && npm pack"

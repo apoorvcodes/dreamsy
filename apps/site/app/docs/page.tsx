@@ -52,7 +52,7 @@ export default function Docs() {
             <h2>Get started</h2>
             <p>You need Node with pnpm, CMake and a C++20 compiler. Clone the repo and install the JavaScript packages.</p>
             <Code>{`git clone ${GITHUB}
-cd dreamsy-mono
+cd dreamsy
 pnpm install`}</Code>
           </section>
 

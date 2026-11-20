@@ -3,7 +3,7 @@
 ## Reporting a vulnerability
 
 Please **don't open a public issue**. Report it privately through
-[GitHub security advisories](https://github.com/apoorvcodes/dreamsy-mono/security/advisories/new) with steps to reproduce.
+[GitHub security advisories](https://github.com/apoorvcodes/dreamsy/security/advisories/new) with steps to reproduce.
 We aim to reply within a few days and will credit you in the fix unless you'd rather stay anonymous.
 
 ## Scope

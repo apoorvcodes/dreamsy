@@ -1,7 +1,7 @@
 # dreamsy-mcp
 
 Make 2D and 2.5D games with your own AI assistant. `dreamsy-mcp` gives any MCP client (Claude Code, Claude Desktop,
-Cursor, …) the [Dreamsy](https://github.com/apoorvcodes/dreamsy-mono) game engine as tools: start from one of 21 genre
+Cursor, …) the [Dreamsy](https://github.com/apoorvcodes/dreamsy) game engine as tools: start from one of 21 genre
 kits, edit scenes and Luau scripts, draw pixel sprites, playtest headless, check and export a game you can share.
 
 It runs on your machine. Your assistant's own model does the building, so there is no Dreamsy account, key or server.
