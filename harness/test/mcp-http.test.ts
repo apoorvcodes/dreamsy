@@ -1,14 +1,23 @@
 // The hosted MCP endpoint (src/mcp/http.ts), driven the way ChatGPT drives it: a new connection for every call.
-import { mkdtempSync, readdirSync, rmSync } from "node:fs";
-import { createServer, type IncomingMessage, type Server } from "node:http";
+import { mkdtempSync, readdirSync, rmSync, utimesSync } from "node:fs";
+import { createServer, request, type IncomingMessage, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
 type ToolResult = { content: { type: string; text?: string }[]; isError?: boolean };
+const { simulate } = vi.hoisted(() => ({
+  simulate: vi.fn(async () => ({
+    errors: [], logs: [], toasts: [], entities: 1, audio: { sfx: {}, music: [] }, avatarTrace: [],
+  })),
+}));
+vi.mock("../src/engine/playtest.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../src/engine/playtest.js")>(),
+  enginePlaytester: async () => ({ simulate }),
+}));
 
 const dir = mkdtempSync(join(tmpdir(), "dreamsy-mcp-http-"));
 
@@ -44,6 +53,11 @@ async function call(name: string, args: Record<string, unknown> = {}) {
 
 const post = (body: unknown, headers: Record<string, string> = {}) =>
   fetch(url, { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream", ...headers }, body: typeof body === "string" ? body : JSON.stringify(body) });
+const rpcTool = async (name: string, args: Record<string, unknown>, headers?: Record<string, string>) => {
+  const r = await post({ jsonrpc: "2.0", id: 7, method: "tools/call", params: { name, arguments: args } }, headers);
+  expect(r.status).toBe(200);
+  return (await r.json()).result as ToolResult;
+};
 
 describe("hosted MCP (stateless Streamable HTTP)", () => {
   let id = "";
@@ -54,6 +68,9 @@ describe("hosted MCP (stateless Streamable HTTP)", () => {
       DREAMSY_MCP_DIR: dir,
       DREAMSY_CLOUD_URL: `http://127.0.0.1:${(cloud.address() as AddressInfo).port}`,
       DREAMSY_MCP_GAMES_PER_IP_DAY: "4",
+      DREAMSY_MCP_GAMES_PER_DAY: "10",
+      DREAMSY_MCP_MAX_GAMES: "5",
+      DREAMSY_MCP_TRUST_FLY: "0",
       PLAYTEST_BROWSER: "0",
     });
     delete process.env.DREAMSY_CLOUD;
@@ -126,6 +143,42 @@ describe("hosted MCP (stateless Streamable HTTP)", () => {
     expect(pub.text).toContain("/play/lantern01");
   }, 120_000);
 
+  it("returns busy across runtime tools and keeps the game until active work finishes", async () => {
+    const report = await simulate();
+    let release!: () => void;
+    let started!: () => void;
+    const running = new Promise<void>((resolve) => { started = resolve; });
+    simulate.mockImplementationOnce(async () => {
+      started();
+      await new Promise<void>((resolve) => { release = resolve; });
+      return report;
+    });
+    const pending = call("check_game", { game: id });
+    await running;
+    try {
+      expect((await call("export_game", { game: id })).text).toMatch(/runner is busy; retry/);
+      expect((await call("apply_ops", { game: id, reason: "edit", ops: [] })).text).toMatch(/MCP is busy; retry/);
+      const expired = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+      utimesSync(join(dir, "meta", `${id}.json`), expired, expired);
+      await sweep();
+      expect(readdirSync(join(dir, "games"))).toContain(id);
+    } finally {
+      release();
+      expect((await pending).ok).toBe(true);
+    }
+    expect((await call("check_game", { game: id })).ok).toBe(true);
+  }, 30_000);
+
+  it("rejects edits that would grow a game past its storage quota", async () => {
+    const result = await call("apply_ops", {
+      game: id, reason: "large file",
+      ops: [{ op: "write_file", path: "data/huge.txt", content: "x".repeat(8_010_000) }],
+    });
+    expect(result.ok).toBe(false);
+    expect(result.text).toMatch(/storage limit/);
+    expect((await call("game_outline", { game: id })).ok).toBe(true);
+  }, 30_000);
+
   it("answers a tool call that skips initialize", async () => {
     const r = await post({ jsonrpc: "2.0", id: 7, method: "tools/call", params: { name: "game_outline", arguments: { game: id } } }, { "mcp-protocol-version": "2025-06-18" });
     expect(r.status).toBe(200);
@@ -136,11 +189,11 @@ describe("hosted MCP (stateless Streamable HTTP)", () => {
     for (const game of ["lantern", "../meta", "lantern/x", id.replace(/.$/, "_")]) expect((await call("game_outline", { game })).ok, game).toBe(false);
   });
 
-  it("limits new games per network per day", async () => {
+  it("limits new games per network when a standalone client supplies forwarding headers", async () => {
     let refused = "";
     for (let i = 0; i < 5 && !refused; i++) {
-      const r = await call("create_game", { game: `g${i}`, name: `G${i}` });
-      if (!r.ok) refused = r.text;
+      const r = await rpcTool("create_game", { game: `g${i}`, name: `G${i}` }, { "x-forwarded-for": `192.0.2.${i + 1}`, "fly-client-ip": `198.51.100.${i + 1}` });
+      if (r.isError) refused = r.content[0]?.text ?? "";
     }
     expect(refused).toMatch(/new games a day/);
   }, 60_000);
@@ -151,10 +204,87 @@ describe("hosted MCP (stateless Streamable HTTP)", () => {
     expect([413, "closed"]).toContain(status);
   });
 
+  it("recovers after disconnects and refuses new POSTs when all eight slots are occupied", async () => {
+    const report = await simulate();
+    let finish!: () => void;
+    let start!: () => void;
+    const running = new Promise<void>((resolve) => { start = resolve; });
+    simulate.mockImplementationOnce(async () => {
+      start();
+      await new Promise<void>((resolve) => { finish = resolve; });
+      return report;
+    });
+    const closed = new Promise<void>((resolve) => {
+      http.once("request", (_req, res) => res.once("close", resolve));
+    });
+    const abandoned = post({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "check_game", arguments: { game: id } } }).catch(() => undefined);
+    await running;
+    http.closeAllConnections();
+    await closed;
+    finish();
+    await abandoned;
+
+    process.env.DREAMSY_MCP_TRUST_FLY = "1";
+    let seen = 0;
+    let four!: () => void;
+    let eight!: () => void;
+    const firstGroup = new Promise<void>((resolve) => { four = resolve; });
+    const secondGroup = new Promise<void>((resolve) => { eight = resolve; });
+    const listen = (req: IncomingMessage) => {
+      if (!req.headers["x-test-partial"]) return;
+      if (++seen === 4) four();
+      if (seen === 8) eight();
+    };
+    const partial = (ip: string) => {
+      const req = request(url, { method: "POST", headers: {
+        "content-length": 2, "content-type": "application/json", "x-test-partial": "1", "fly-client-ip": ip,
+      } });
+      const done = new Promise<number | undefined>((resolve, reject) => {
+        req.on("error", reject);
+        req.on("response", (res) => res.resume().on("end", () => resolve(res.statusCode)));
+      });
+      req.write("{");
+      return { req, done };
+    };
+    http.on("request", listen);
+    const requests = Array.from({ length: 4 }, () => partial("192.0.2.1"));
+    try {
+      await firstGroup;
+      expect((await post({}, { "fly-client-ip": "192.0.2.1" })).status).toBe(429);
+      requests.push(...Array.from({ length: 4 }, () => partial("192.0.2.2")));
+      await secondGroup;
+      const busy = await post({}, { "fly-client-ip": "192.0.2.3" });
+      expect(busy.status).toBe(503);
+      expect(busy.headers.get("retry-after")).toBe("5");
+      expect((await fetch(new URL("/mcp/health", url))).status).toBe(200);
+    } finally {
+      http.off("request", listen);
+      process.env.DREAMSY_MCP_TRUST_FLY = "0";
+      for (const { req } of requests) req.end("}");
+      expect(await Promise.all(requests.map(({ done }) => done))).not.toContain(503);
+    }
+  }, 30_000);
+
   it("deletes games nobody used for a day", async () => {
     expect(readdirSync(join(dir, "games")).length).toBeGreaterThan(0);
     await sweep(Date.now() + 2 * 24 * 60 * 60 * 1000);
     expect(readdirSync(join(dir, "games"))).toEqual([]);
     expect((await call("game_outline", { game: id })).ok).toBe(false);
+  });
+
+  it("uses trusted Fly IPs and enforces creation and live-game caps across networks", async () => {
+    process.env.DREAMSY_MCP_TRUST_FLY = "1";
+    try {
+      for (let i = 1; i <= 5; i++) {
+        expect((await rpcTool("create_game", { game: "test", name: "Test" }, { "fly-client-ip": `192.0.2.${i}` })).isError).toBeUndefined();
+      }
+      const overflow = await rpcTool("create_game", { game: "test", name: "Test" }, { "fly-client-ip": "192.0.2.10" });
+      expect(overflow.content[0]?.text).toMatch(/new-game limit/);
+      await sweep(Date.now() + 2 * 24 * 60 * 60 * 1000);
+      expect((await rpcTool("create_game", { game: "last", name: "Last" }, { "fly-client-ip": "192.0.2.10" })).isError).toBeUndefined();
+      expect((await rpcTool("create_game", { game: "extra", name: "Extra" }, { "fly-client-ip": "192.0.2.11" })).isError).toBe(true);
+    } finally {
+      process.env.DREAMSY_MCP_TRUST_FLY = "0";
+    }
   });
 });

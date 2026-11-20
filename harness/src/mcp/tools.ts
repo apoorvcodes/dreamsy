@@ -1,5 +1,5 @@
-import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { mkdir, readdir, rm, rmdir, stat, writeFile } from "node:fs/promises";
+import { existsSync, statfsSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
@@ -31,21 +31,77 @@ type Result = { content: Content[]; isError?: boolean };
 const text = (t: string, isError = false): Result => ({ content: [{ type: "text", text: t }], ...(isError ? { isError: true } : {}) });
 const jpeg = (b: Uint8Array): Content => ({ type: "image", data: Buffer.from(b).toString("base64"), mimeType: "image/jpeg" });
 
+const MAX_GAME_BYTES = 8_000_000;
+const MAX_GAME_FILES = 512;
+const MAX_GAME_ENTRIES = 2048;
+const DISK_RESERVE = 256 * 1024 * 1024;
+const RUNTIME_TOOLS = new Set(["playtest", "check_game", "export_game", "publish_game"]);
+const WRITING_TOOLS = new Set(["apply_ops", "draw_sprite", "export_game", "publish_game"]);
+let runtimeBusy = false;
+
+function checkSize(size: number, files: number, entries: number) {
+  if (size > MAX_GAME_BYTES || files > MAX_GAME_FILES || entries > MAX_GAME_ENTRIES) {
+    throw new Error("Hosted game exceeds its storage limit (8 MB or too many files and directories).");
+  }
+}
+
+function checkWrite(root: string, pkg: Package) {
+  const paths = pkg.paths();
+  const size = pkg.size;
+  checkSize(size, paths.length, paths.length);
+  const entries = new Set(paths);
+  for (const path of paths) {
+    if (Buffer.byteLength(path) > 1024) throw new Error("A game file path is too long.");
+    for (let dir = dirname(path); dir !== "."; dir = dirname(dir)) {
+      entries.add(dir);
+      if (entries.size > MAX_GAME_ENTRIES) checkSize(size, paths.length, entries.size);
+    }
+  }
+  const fs = statfsSync(root);
+  if (fs.bavail * fs.bsize < DISK_RESERVE || (fs.files > 0 && fs.ffree < MAX_GAME_ENTRIES * 8)) {
+    throw new Error("Dreamsy's game storage is nearly full; retry later.");
+  }
+}
+
 function gameDirIn(root: string, path: string, remote: boolean): string {
+  if (remote && !/^[a-z0-9-]{1,24}-[a-z0-9]{10}$/.test(path)) throw new Error("Use the game id create_game returned");
   const dir = resolve(root, path);
   const rel = relative(root, dir);
-  if (!rel || rel.startsWith("..") || isAbsolute(rel) || (remote && rel.includes("/"))) throw new Error(remote ? `${path} is not a game id; use the id create_game returned` : `games live under ${root}; ${path} is outside it`);
+  if (!rel || rel.startsWith("..") || isAbsolute(rel)) throw new Error(`games live under ${root}; ${path} is outside it`);
   return dir;
 }
 
 async function loadIn(root: string, path: string, remote: boolean): Promise<{ dir: string; pkg: Package }> {
   const dir = gameDirIn(root, path, remote);
-  if (!existsSync(join(dir, "dreamsy.toml"))) throw new Error(`no game at ${path} (create_game first)`);
+  if (!existsSync(join(dir, "dreamsy.toml"))) throw new Error(remote ? "No game with that id (create_game first)" : `no game at ${path} (create_game first)`);
+  if (remote) {
+    const entries = await readdir(dir, { recursive: true, withFileTypes: true });
+    const files = entries.filter((entry) => entry.isFile());
+    checkSize(0, files.length, entries.length);
+    let size = 0;
+    for (const file of files) {
+      size += (await stat(join(file.parentPath, file.name))).size;
+      checkSize(size, files.length, entries.length);
+    }
+  }
   return { dir, pkg: await Package.fromDir(dir) };
 }
 
-async function save(dir: string, before: Package, after: Package) {
-  for (const p of before.paths()) if (!after.has(p)) await rm(join(dir, p), { force: true });
+async function save(dir: string, before: Package, after: Package, hosted: boolean) {
+  for (const p of before.paths()) {
+    if (after.has(p)) continue;
+    const file = join(dir, p);
+    await rm(file, { force: true });
+    if (!hosted) continue;
+    for (let parent = dirname(file); parent !== dir; parent = dirname(parent)) {
+      try {
+        await rmdir(parent);
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code === "ENOTEMPTY") break;
+        if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
+      }
+    }
+  }
   for (const p of after.paths()) {
     const b = after.bytes(p)!;
     const old = before.bytes(p);
@@ -55,13 +111,24 @@ async function save(dir: string, before: Package, after: Package) {
   }
 }
 
-let playtester: Promise<Playtester> | null = null;
-const engine = () => (playtester ??= enginePlaytester({ browser: process.env.PLAYTEST_BROWSER !== "0" }));
+const playtesters = new Map<boolean, Promise<Playtester>>();
+function getEngine(hosted: boolean) {
+  let pt = playtesters.get(hosted);
+  if (!pt) {
+    pt = enginePlaytester({ browser: process.env.PLAYTEST_BROWSER !== "0", hosted }).catch((e) => {
+      playtesters.delete(hosted);
+      throw e;
+    });
+    playtesters.set(hosted, pt);
+  }
+  return pt;
+}
 
-function context(ws: Workspace, pt: Playtester): ToolCtx {
+function context(ws: Workspace): ToolCtx {
   const manifest = validatePackage(ws.pkg).manifest;
   return {
-    ws, playtest: pt, images: disabledImages, emit: async () => {}, signal: new AbortController().signal,
+    ws, playtest: { simulate: async () => { throw new Error("No simulation in this tool"); } },
+    images: disabledImages, emit: async () => {}, signal: new AbortController().signal,
     cost: new CostMeter(), plan: PLANS.tweak, trace: newTrace(), kitIds: manifest?.kits ?? [],
     packId: manifest?.style.pack ?? null, pack: manifest?.style.pack ? tastePacks().get(manifest.style.pack) : undefined,
     state: { reviewed: true },
@@ -78,12 +145,17 @@ export interface ServerOptions {
   cloud: (dir: string) => CloudConfig | null;
   links: { get(dir: string): string | null; set(dir: string, gameId: string): void };
   /** Hosted: games are named by an unguessable id that create_game returns, and expire when unused. */
-  remote?: { newGameId(name: string): string; touch(dir: string): void };
+  remote?: {
+    createGame(name: string, write: (dir: string) => Promise<void>): Promise<string>;
+    touch(dir: string): void;
+    run<T>(dir: string | undefined, exclusive: boolean, fn: () => Promise<T>): Promise<T>;
+  };
 }
 
 export function createServer(opts: ServerOptions): McpServer {
 const ROOT = opts.root;
 const remote = !!opts.remote;
+const engine = () => getEngine(remote);
 const gameDir = (path: string) => gameDirIn(ROOT, path, remote);
 const load = async (path: string) => {
   const game = await loadIn(ROOT, path, remote);
@@ -118,8 +190,21 @@ const ANNOTATIONS: Record<string, typeof READ> = {
   export_game: CLOUD, publish_game: CLOUD,
 };
 const register = server.registerTool.bind(server);
-server.registerTool = ((name: string, config: { annotations?: object }, cb: unknown) =>
-  register(name, { ...config, annotations: { title: (config as { title?: string }).title, ...ANNOTATIONS[name], ...config.annotations } } as never, cb as never)) as typeof server.registerTool;
+server.registerTool = ((name: string, config: { annotations?: object }, cb: (args: { game?: string }) => Promise<Result>) =>
+  register(name, { ...config, annotations: { title: (config as { title?: string }).title, ...ANNOTATIONS[name], ...config.annotations } } as never, guarded(async (args: { game?: string }) => {
+    if (!opts.remote) return cb(args);
+    const heavy = RUNTIME_TOOLS.has(name);
+    if (heavy && runtimeBusy) return text("Dreamsy's playtest runner is busy; retry in a moment.", true);
+    const dir = name !== "create_game" && args.game !== undefined ? gameDir(args.game) : undefined;
+    return opts.remote.run(dir, WRITING_TOOLS.has(name), async () => {
+      if (heavy) runtimeBusy = true;
+      try {
+        return await cb(args);
+      } finally {
+        if (heavy) runtimeBusy = false;
+      }
+    });
+  }) as never)) as typeof server.registerTool;
 
 // ChatGPT calls resources/list during setup.
 server.registerResource("kits", "dreamsy://kits", {
@@ -137,11 +222,15 @@ function guarded<A>(fn: (args: A) => Promise<Result>) {
 function editTool(tool: Tool, title: string) {
   const input = (tool.input as unknown as z.ZodObject).extend({ game: z.string().describe("Game folder, relative to the games directory.") });
   server.registerTool(tool.name, { title, description: tool.description, inputSchema: input.shape }, guarded(async (args: Record<string, unknown>) => {
-    const { game, ...rest } = args as { game: string };
+    const { game, ...rest } = args as { game: string } & Record<string, unknown>;
+    if (remote && Array.isArray(rest.ops) && rest.ops.length > 256) throw new Error("Split edits into batches of at most 256 operations.");
     const { dir, pkg } = await load(game);
     const ws = new Workspace(pkg, disabledImages, async () => {}, new AbortController().signal, []);
-    const out = await tool.run(tool.input.parse(rest), context(ws, await engine()));
-    if (ws.pkg !== pkg) await save(dir, pkg, ws.pkg);
+    const out = await tool.run(tool.input.parse(rest), context(ws));
+    if (ws.pkg !== pkg) {
+      if (remote) checkWrite(ROOT, ws.pkg);
+      await save(dir, pkg, ws.pkg, remote);
+    }
     return toResult(out);
   }));
 }
@@ -180,17 +269,24 @@ server.registerTool("create_game", {
     orientation: z.enum(["portrait", "landscape"]).optional(),
   },
 }, guarded(async ({ game: requested, name, kit, style, pack, orientation }) => {
-  const game = opts.remote ? opts.remote.newGameId(requested) : requested;
-  const dir = gameDir(game);
-  if (existsSync(dir) && (await readdir(dir)).length) throw new Error(`${game} already exists and is not empty`);
-  const idNote = opts.remote ? `\nThe game id is "${game}": pass exactly this as \`game\` to every other tool.` : "";
+  if (remote && name.length > 200) throw new Error("Game names can be at most 200 characters.");
   const packDef = pack ? tastePacks().get(pack) : undefined;
   if (pack && !packDef) throw new Error(`unknown pack ${pack}`);
   const preset = style ?? packDef?.preset ?? "clean";
   const manifestOps = `set_manifest name "${name}", orientation "${orientation ?? "portrait"}", style.preset "${preset}"${packDef ? `, style.pack "${packDef.id}", style.palette ${JSON.stringify(packDef.palette.slice(0, 32))}` : ""}`;
   const template = kit ? await kitTemplate([kit]) : null;
   if (kit && !template) throw new Error(`kit ${kit} has no template game; create it without a kit and add "${kit}" to manifest kits`);
-  await mkdir(dir, { recursive: true });
+  async function create(pkg: Package) {
+    if (opts.remote) {
+      checkWrite(ROOT, pkg);
+      const game = await opts.remote.createGame(requested, (dir) => pkg.toDir(dir));
+      return { game, idNote: `\nThe game id is "${game}": pass exactly this as \`game\` to every other tool.` };
+    }
+    const dir = gameDir(requested);
+    if (existsSync(dir) && (await readdir(dir)).length) throw new Error(`${requested} already exists and is not empty`);
+    await pkg.toDir(dir);
+    return { game: requested, idNote: "" };
+  }
   if (template) {
     const base = template.pkg.with("dreamsy.toml", (template.pkg.text("dreamsy.toml") ?? "").replace(/^id\s*=.*\n/m, ""));
     const ws = new Workspace(base, disabledImages, async () => {}, new AbortController().signal, []);
@@ -201,11 +297,11 @@ server.registerTool("create_game", {
       ...(packDef ? [{ op: "set_manifest", key: "style.pack", value: packDef.id }, { op: "set_manifest", key: "style.palette", value: packDef.palette.slice(0, 32) }] : []),
     ];
     const applied = ws.applyOps(ops, "create from kit template");
-    await (applied.applied ? ws.pkg : base).toDir(dir);
+    const { game, idNote } = await create(applied.applied ? ws.pkg : base);
     const note = applied.applied ? `Set name "${name}", style "${preset}"${packDef ? `, pack "${packDef.id}"` : ""}.` : `Couldn't set the manifest automatically (${applied.text.slice(0, 200)}); do it first: ${manifestOps}.`;
     return text(`Created ${game} from the ${template.kit} kit template. ${note}${idNote}\n${templateNote(template.kit)}\nNext: set the description and palette for the player's game, then call dreamsy_guide.`);
   }
-  await writeFile(join(dir, "dreamsy.toml"), `format = "0"\nname = ${JSON.stringify(name)}\ndimension = "2d"\nentry_scene = "scenes/main.scene.json"\norientation = "${orientation ?? "portrait"}"\n\n[style]\npreset = "${preset}"\n${packDef ? `pack = "${packDef.id}"\n` : ""}`);
+  const { game, idNote } = await create(Package.empty().with("dreamsy.toml", `format = "0"\nname = ${JSON.stringify(name)}\ndimension = "2d"\nentry_scene = "scenes/main.scene.json"\norientation = "${orientation ?? "portrait"}"\n\n[style]\npreset = "${preset}"\n${packDef ? `pack = "${packDef.id}"\n` : ""}`));
   return text(`Created an empty game at ${game}.${idNote}\nIt has a manifest but no scenes yet: add scenes/main.scene.json with add_scene, then build. Call dreamsy_guide first.`);
 }));
 
@@ -232,10 +328,13 @@ server.registerTool("playtest", {
   const pt = await engine();
   const tl = d.timeline as TimelineStep[];
   const start = { scene: d.scene, sceneParams: d.sceneParams, save: d.save };
-  const [sim, view] = await Promise.all([
+  const [simulation, screenshot] = await Promise.allSettled([
     pt.simulate(pkg, tl, d.seconds, start),
     pt.browser ? pt.browser(pkg, tl, d.shots.filter((t) => t <= d.seconds).slice(0, 4), start) : Promise.resolve(null),
   ]);
+  if (simulation.status === "rejected") throw simulation.reason;
+  if (screenshot.status === "rejected") throw screenshot.reason;
+  const sim = simulation.value, view = screenshot.value;
   const shots = view ? `\n\nScreenshots at ${view.shots.map((s) => `${s.t}s`).join(", ") || "(none)"}${view.loadError ? `\nRENDERER LOAD FAILED: ${view.loadError}` : ""}` : "\n\n(no screenshots: web player not built or PLAYTEST_BROWSER=0)";
   return { content: [{ type: "text", text: `Simulation (${d.seconds}s):\n${describeRun(sim)}${shots}` }, ...(view?.shots ?? []).map((s) => jpeg(s.jpeg))] };
 }));

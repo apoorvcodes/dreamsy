@@ -5,12 +5,20 @@ compatibility_date = "2025-10-01"
 [vars]
 ALLOWED_ORIGINS = "https://dreamsy.dev,https://www.dreamsy.dev,https://dreamsy-dev.fly.dev,http://127.0.0.1:3100,http://localhost:3100"
 MAX_PACK_BYTES = "8000000"
-# hard budget: uploads stop past these, keeping R2 at most ~$17/month (storage $0.015/GB, writes $4.50/M)
+# Quota for R2 payload bytes and PUT attempts. Requests, reads, and D1 are billed separately.
 MAX_STORAGE_GB = "500"
+MAX_DAILY_UPLOAD_GB = "10"
 MAX_MONTHLY_WRITES = "3000000"
 # abuse limits: new data per network per day, and total per save key
 MAX_IP_MB_PER_DAY = "300"
 MAX_OWNER_MB = "2000"
+MAX_DAILY_MUTATIONS = "20000"
+MAX_IP_MUTATIONS_PER_DAY = "4000"
+MAX_DAILY_PLAYS = "50000"
+MAX_DAILY_REPORTS = "1000"
+
+[triggers]
+crons = ["7 * * * *"]
 
 [[r2_buckets]]
 binding = "GAMES"

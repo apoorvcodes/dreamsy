@@ -76,17 +76,33 @@ export function dreamsyTool(): string {
   throw new Error("dreamsy-tool not found: build it (cd engine && cmake --preset release && cmake --build --preset release --target dreamsy-tool) or set DREAMSY_TOOL");
 }
 
-export function runTool(args: string[], opts: { stdin?: string; timeoutMs?: number } = {}): Promise<{ stdout: string; stderr: string; code: number | null }> {
+export function runTool(args: string[], opts: { stdin?: string; timeoutMs?: number; maxOutputBytes?: number } = {}): Promise<{ stdout: string; stderr: string; code: number | null }> {
   return new Promise((resolve, reject) => {
     const child = spawn(dreamsyTool(), args, { stdio: ["pipe", "pipe", "pipe"] });
     const out: Buffer[] = [], err: Buffer[] = [];
     const ms = opts.timeoutMs ?? 120_000;
-    const timer = setTimeout(() => { child.kill("SIGKILL"); reject(new Error(`dreamsy-tool ${args[0]} timed out after ${ms} ms`)); }, ms);
-    child.stdout.on("data", (b: Buffer) => out.push(b));
-    child.stderr.on("data", (b: Buffer) => err.push(b));
+    let failure: Error | undefined;
+    let outputBytes = 0;
+    const stop = (message: string) => {
+      failure ??= new Error(message);
+      child.kill("SIGKILL");
+    };
+    const timer = setTimeout(() => stop(`dreamsy-tool ${args[0]} timed out after ${ms} ms`), ms);
+    const collect = (chunks: Buffer[], b: Buffer) => {
+      if (failure) return;
+      outputBytes += b.length;
+      if (outputBytes > (opts.maxOutputBytes ?? Infinity)) {
+        stop(`dreamsy-tool ${args[0]} exceeded its output limit`);
+      } else {
+        chunks.push(b);
+      }
+    };
+    child.stdout.on("data", (b: Buffer) => collect(out, b));
+    child.stderr.on("data", (b: Buffer) => collect(err, b));
     child.on("error", (e) => { clearTimeout(timer); reject(e); });
     child.on("close", (code, signal) => {
       clearTimeout(timer);
+      if (failure) { reject(failure); return; }
       const stdout = Buffer.concat(out).toString("utf8"), stderr = Buffer.concat(err).toString("utf8");
       if (signal) reject(new Error(`dreamsy-tool ${args[0]} crashed (${signal}): ${stderr.slice(-500)}`));
       else resolve({ stdout, stderr, code });
@@ -99,8 +115,14 @@ export function runTool(args: string[], opts: { stdin?: string; timeoutMs?: numb
 export function tempPack(pkg: Package): { path: string; cleanup: () => void } {
   const dir = mkdtempSync(join(tmpdir(), "dreamsy-pt-"));
   const path = join(dir, "game.dpk");
-  writeFileSync(path, pkg.toPack());
-  return { path, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+  const cleanup = () => rmSync(dir, { recursive: true, force: true });
+  try {
+    writeFileSync(path, pkg.toPack());
+    return { path, cleanup };
+  } catch (e) {
+    cleanup();
+    throw e;
+  }
 }
 
 export interface SimulateOptions extends StartAt {
@@ -108,6 +130,7 @@ export interface SimulateOptions extends StartAt {
   autoDialog?: "first" | "last" | number;
   budgetMs?: number;
   seed?: number;
+  hosted?: boolean;
 }
 
 const emptyReport = (loadError: string): PlaytestReport => ({ loadError, errors: [], logs: [], toasts: [], entities: 0, avatarTrace: [], audio: { sfx: {}, music: [] } });
@@ -129,7 +152,11 @@ export async function simulate(pkg: Package, timeline: TimelineStep[], seconds: 
     if (opts.autoDialog !== undefined) args.push("--auto-dialog", String(opts.autoDialog));
     if (opts.budgetMs !== undefined) args.push("--budget", String(opts.budgetMs));
     if (opts.seed !== undefined) args.push("--seed", String(opts.seed));
-    const { stdout, stderr } = await runTool(args, { stdin: JSON.stringify(timeline), timeoutMs: 60_000 + secs * 5_000 });
+    const { stdout, stderr } = await runTool(args, {
+      stdin: JSON.stringify(timeline),
+      timeoutMs: opts.hosted ? 30_000 : 60_000 + secs * 5_000,
+      maxOutputBytes: opts.hosted ? 1024 * 1024 : undefined,
+    });
     try {
       return JSON.parse(stdout) as PlaytestReport;
     } catch {
@@ -140,12 +167,13 @@ export async function simulate(pkg: Package, timeline: TimelineStep[], seconds: 
   }
 }
 
-export async function enginePlaytester(opts: { browser: boolean }): Promise<Playtester> {
+export async function enginePlaytester(opts: { browser: boolean; hosted?: boolean }): Promise<Playtester> {
   dreamsyTool();
-  const browser = opts.browser ? await import("./browser.js").catch(() => null) : null;
+  const renderer = opts.browser ? await import("./browser.js").catch(() => null) : null;
+  const browser = opts.hosted && renderer && !renderer.chromiumReady() ? null : renderer;
   return {
-    simulate: (p, tl, secs, start) => simulate(p, tl, secs, { autoDialog: "first", ...start }),
-    ...(browser ? { browser: (p: Package, tl: TimelineStep[], shots: number[], start?: StartAt) => browser.playtestBrowser(p, tl, shots, start) } : {}),
+    simulate: (p, tl, secs, start) => simulate(p, tl, secs, { autoDialog: "first", ...start, hosted: opts.hosted }),
+    ...(browser ? { browser: (p: Package, tl: TimelineStep[], shots: number[], start?: StartAt) => browser.playtestBrowser(p, tl, shots, { ...start, hosted: opts.hosted }) } : {}),
     close: async () => { await browser?.closeBrowser(); },
   };
 }

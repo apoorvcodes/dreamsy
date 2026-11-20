@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { after, before, test } from "node:test";
+import { fileURLToPath } from "node:url";
 import { Miniflare } from "miniflare";
 
 const here = new URL(".", import.meta.url);
@@ -13,6 +14,7 @@ const call = async (path, { key, method = "GET", body, headers = {} } = {}) => {
   const res = await mf.dispatchFetch(`http://cloud.test${path}`, {
     method,
     body,
+    ...(body instanceof ReadableStream ? { duplex: "half" } : {}),
     headers: { ...(key ? { authorization: `Bearer ${key}` } : {}), ...headers },
   });
   const type = res.headers.get("content-type") ?? "";
@@ -23,14 +25,14 @@ const jsonBody = (o) => ({ body: JSON.stringify(o), headers: { "content-type": "
 before(async () => {
   mf = new Miniflare({
     modules: true,
-    scriptPath: new URL("../.build/index.js", here).pathname,
+    scriptPath: fileURLToPath(new URL("../.build/index.js", here)),
     compatibilityDate: "2025-10-01",
     r2Buckets: ["GAMES"],
     d1Databases: ["DB"],
     bindings: { ALLOWED_ORIGINS: "http://127.0.0.1:3100", MAX_PACK_BYTES: "8000000", MAX_STORAGE_GB: "500", MAX_MONTHLY_WRITES: "3000000", MAX_IP_MB_PER_DAY: "300", MAX_OWNER_MB: "2000" },
   });
   const db = await mf.getD1Database("DB");
-  for (const f of ["0001_init.sql", "0002_budget.sql"]) {
+  for (const f of ["0001_init.sql", "0002_budget.sql", "0003_launch_limits.sql"]) {
     const sql = readFileSync(new URL(`../migrations/${f}`, here), "utf8");
     for (const stmt of sql.split(";").map((s) => s.trim()).filter(Boolean)) await db.prepare(stmt).run();
   }
@@ -144,4 +146,96 @@ test("per-owner storage limit", async () => {
   const res = await call(`/v1/games/${created.body.id}/versions`, { key: CAROL, method: "POST", body: Buffer.concat([pack, Buffer.from("yy")]) });
   assert.equal(res.status, 507);
   assert.match(res.body.error, /2 GB/);
+});
+
+test("concurrent R2 uploads reserve the monthly and byte quotas before writing", async () => {
+  const db = await mf.getD1Database("DB");
+  const uploads = await Promise.all([ALICE, BOB].map(async (key) => ({
+    key,
+    id: (await call("/v1/games", { key, method: "POST" })).body.id,
+  })));
+  const month = new Date().toISOString().slice(0, 7);
+  const updateUsage = (key, value) => db.prepare("INSERT INTO usage (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = ?2").bind(key, value).run();
+  await updateUsage("bytes", 500e9 - pack.length - 1);
+  await updateUsage(`writes:${month}`, 2_999_999);
+  try {
+    const results = await Promise.all(uploads.map(({ key, id }, i) => call(`/v1/games/${id}/versions`, {
+      key, method: "POST", body: Buffer.concat([pack, Buffer.from([i])]),
+    })));
+    assert.deepEqual(results.map((res) => res.status).sort(), [201, 507]);
+    assert.equal((await db.prepare("SELECT value FROM usage WHERE key = 'bytes'").first()).value, 500e9);
+    assert.equal((await db.prepare("SELECT value FROM usage WHERE key = ?1").bind(`writes:${month}`).first()).value, 3_000_000);
+  } finally {
+    await updateUsage("bytes", 0);
+    await updateUsage(`writes:${month}`, 0);
+  }
+});
+
+test("deduplicated versions get distinct version numbers and still consume mutation quota", async () => {
+  const db = await mf.getD1Database("DB");
+  const id = (await call("/v1/games", { key: ALICE, method: "POST" })).body.id;
+  const path = `/v1/games/${id}/versions`;
+  const before = await db.prepare("SELECT count FROM rate WHERE bucket = 'global:mutations'").first();
+  const results = await Promise.all(Array.from({ length: 3 }, () => call(path, { key: ALICE, method: "POST", body: pack })));
+  assert.deepEqual(results.map((res) => res.status), [201, 201, 201]);
+  assert.deepEqual(results.map((res) => res.body.version).sort(), [0, 1, 2]);
+  const after = await db.prepare("SELECT count FROM rate WHERE bucket = 'global:mutations'").first();
+  assert.equal(after.count - before.count, 3);
+  await db.prepare("UPDATE rate SET count = 20000 WHERE bucket = 'global:mutations'").run();
+  try {
+    assert.equal((await call(path, { key: ALICE, method: "POST", body: pack })).status, 429);
+    assert.equal((await db.prepare("SELECT count FROM rate WHERE bucket = 'global:mutations'").first()).count, 20000);
+  } finally {
+    await db.prepare("UPDATE rate SET count = ?1 WHERE bucket = 'global:mutations'").bind(after.count).run();
+  }
+});
+
+test("rejects oversized bodies and invalid labels", async () => {
+  const id = (await call("/v1/games", { key: ALICE, method: "POST" })).body.id;
+  const stream = (length) => new ReadableStream({
+    start(controller) {
+      for (let offset = 0; offset < length; offset += 8192) {
+        controller.enqueue(new Uint8Array(Math.min(8192, length - offset)).fill(32));
+      }
+      controller.close();
+    },
+  });
+  assert.equal((await call("/v1/games", { key: ALICE, method: "POST", body: stream(20_000), headers: { "content-type": "application/json" } })).status, 413);
+  const path = `/v1/games/${id}/versions`;
+  assert.equal((await call(path, { key: ALICE, method: "POST", body: stream(8_100_000) })).status, 413);
+  assert.equal((await call(path, { key: ALICE, method: "POST", body: pack, headers: { "x-dreamsy-label": "%" } })).status, 400);
+  assert.equal((await call(path, { key: ALICE, method: "POST", body: pack })).status, 201);
+  assert.equal((await call(`${path}/0/thumb`, { key: ALICE, method: "PUT", body: stream(601_000), headers: { "content-type": "image/jpeg" } })).status, 413);
+});
+
+test("global daily byte quota refuses new objects without blocking deduplicated versions", async () => {
+  const db = await mf.getD1Database("DB");
+  const day = new Date().toISOString().slice(0, 10);
+  const id = (await call("/v1/games", { key: BOB, method: "POST" })).body.id;
+  const path = `/v1/games/${id}/versions`;
+  const bucket = `daily-bytes:${day}`;
+  await db.prepare("INSERT INTO usage (key, value) VALUES (?1, 10000000000) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(bucket).run();
+  try {
+    const refused = await call(path, { key: BOB, method: "POST", body: Buffer.concat([pack, Buffer.from("daily")]) });
+    assert.equal(refused.status, 429);
+    assert.match(refused.body.error, /daily upload limit/);
+    assert.equal((await call(path, { key: BOB, method: "POST", body: pack })).status, 201);
+  } finally {
+    await db.prepare("DELETE FROM usage WHERE key = ?1").bind(bucket).run();
+  }
+});
+
+test("public list cache normalizes queries and applies CORS on each response", async () => {
+  const db = await mf.getD1Database("DB");
+  const id = (await call("/v1/games", { key: ALICE, method: "POST", ...jsonBody({ name: "Cache Canoe" }) })).body.id;
+  assert.equal((await call(`/v1/games/${id}/versions`, { key: ALICE, method: "POST", body: pack })).status, 201);
+  assert.equal((await call(`/v1/games/${id}/publish`, { key: ALICE, method: "POST" })).status, 200);
+  const first = await call("/v1/public/games?limit=100&q=Cache%20Canoe", { headers: { origin: "http://127.0.0.1:3100" } });
+  assert.equal(first.headers.get("access-control-allow-origin"), "http://127.0.0.1:3100");
+  assert.equal(first.body.total, 1);
+  await db.prepare("UPDATE games SET name = 'Renamed' WHERE id = ?1").bind(id).run();
+  const hit = await call("/v1/public/games?ignored=1&q=cache%20canoe&limit=60");
+  assert.deepEqual(hit.body, first.body);
+  assert.equal(hit.headers.get("access-control-allow-origin"), "*");
+  assert.equal((await call("/v1/public/games?q=cache%20canoe&limit=1")).body.total, 0);
 });
