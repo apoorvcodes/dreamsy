@@ -54,15 +54,17 @@ TEST_CASE("luau: sandbox: no io/debug/loadstring/getfenv, os.clock only") {
 }
 
 TEST_CASE("luau: kills runaway scripts and pcall can't swallow the budget error") {
-  // The budget itself is under test: exact 100 ms, as in TS.
+  // Keep this top-level timeout test fast with an exact 100 ms load budget.
+  auto opts = budget_opts(100);
+  opts.load_budget_ms = 100;
   Game g = run(R"(
       local n = 0
       onTick(function() n += 1 entity("label").text = tostring(n) end)
       pcall(function() while true do end end)
       entity("label").text = "survived")",
-               3, {}, budget_opts(100));
+               3, {}, opts);
   REQUIRE_FALSE(g->errors().empty());
-  CHECK(matches(g->errors()[0].message, R"(execution budget)"));
+  CHECK(g->errors()[0].message == "script exceeded its execution budget (100 ms)");
   CHECK(text(g) == "3");  // the script died, its earlier onTick still runs
 }
 

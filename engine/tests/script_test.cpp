@@ -105,22 +105,69 @@ TEST_CASE("the same seed gives the same random numbers; another seed doesn't") {
   CHECK(run(1) != run(2));
 }
 
-TEST_CASE("a runaway loop is killed by the CPU budget and pcall can't swallow it") {
+TEST_CASE("slow top-level script and module setup can finish and register onTick") {
+  auto pkg = package_with({{"scripts/client/main.luau", R"(
+    local start = os.clock()
+    while os.clock() - start < 0.5 do end
+    local message = require("../shared/setup")
+    onTick(function() print(message) end)
+  )"},
+                           {"scripts/shared/setup.luau", R"(
+    local start = os.clock()
+    while os.clock() - start < 0.5 do end
+    return "tick after setup"
+  )"}});
+  auto host = Host::create(pkg);
+  REQUIRE_MESSAGE(host.ok(), host.error());
+  host.value()->step();
+  CHECK(host.value()->errors().empty());
+  CHECK(all_logs(*host.value()) == "[info] tick after setup\n");
+}
+
+TEST_CASE("a runaway top-level loop is killed by the load budget and pcall can't swallow it") {
   auto pkg = package_with({{"scripts/client/main.luau", R"(
     local ok = pcall(function() while true do end end)
     print("unreachable", ok)
   )"},
                            {"scripts/client/next.luau", R"(print("next script runs"))"}});
   HostOptions o;
-  o.budget_ms = 30;
+  int expected_ms = 2000;
+  SUBCASE("default load budget") {}
+  SUBCASE("a larger callback budget also raises the load budget") {
+    o.load_budget_ms = 20;
+    o.budget_ms = 30;
+    expected_ms = 30;
+  }
   auto t0 = std::chrono::steady_clock::now();
   auto host = Host::create(pkg, o);
   auto elapsed = std::chrono::steady_clock::now() - t0;
   REQUIRE(host.ok());
-  CHECK(elapsed < std::chrono::seconds(2));
+  CHECK(elapsed >= std::chrono::milliseconds(expected_ms));
   REQUIRE(host.value()->errors().size() == 1);
-  CHECK(host.value()->errors()[0].message == "script exceeded its execution budget (30 ms)");
+  CHECK(host.value()->errors()[0].message ==
+        "script exceeded its execution budget (" + std::to_string(expected_ms) + " ms)");
   CHECK(all_logs(*host.value()).find("next script runs") != std::string::npos);
+  CHECK(all_logs(*host.value()).find("unreachable") == std::string::npos);
+}
+
+TEST_CASE("a module required from onTick shares the callback deadline") {
+  auto pkg = package_with({{"scripts/client/main.luau", R"(
+    onTick(function()
+      require("../shared/setup")
+      print("unreachable")
+    end)
+  )"},
+                           {"scripts/shared/setup.luau", R"(
+    local start = os.clock()
+    while os.clock() - start < 0.5 do end
+    return {}
+  )"}});
+  auto host = Host::create(pkg);
+  REQUIRE_MESSAGE(host.ok(), host.error());
+  REQUIRE(host.value()->errors().empty());
+  host.value()->step();
+  REQUIRE(host.value()->errors().size() == 1);
+  CHECK(host.value()->errors()[0].message == "script exceeded its execution budget (250 ms)");
   CHECK(all_logs(*host.value()).find("unreachable") == std::string::npos);
 }
 

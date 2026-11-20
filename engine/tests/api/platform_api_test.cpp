@@ -190,14 +190,22 @@ TEST_CASE("platform_api: UI props and TileMap2D taps: TileMap2D fires tileTapped
 TEST_CASE("platform_api: long simulations: budgetMs raises the per-call Luau budget for headless sims (default stays 250ms)") {
   // Tests the budget itself: exact values (no budget() scaling).
   FileMap heavy;
-  heavy["scripts/client/h.luau"] = R"(local t0 = os.clock() while os.clock() - t0 < 0.4 do end print("survived"))";
+  heavy["scripts/client/h.luau"] = R"(
+    onTick(function()
+      local t0 = os.clock()
+      while os.clock() - t0 < 0.4 do end
+      print("survived")
+    end)
+  )";
   Game short_run = start(make_pkg("", "", heavy));
+  short_run->step();
   Strs messages;
   for (const auto& e : short_run->errors()) messages.push_back(e.message);
   CHECK(matches(join(messages, ","), R"(execution budget \(250 ms\))"));
   script::HostOptions o;
   o.budget_ms = 5000;
   Game long_run = start(make_pkg("", "", heavy), o);
+  long_run->step();
   CHECK_NO_ERRORS(long_run);
   CHECK(has_line(long_run.logs(), "survived"));
 }

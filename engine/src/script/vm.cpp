@@ -1,5 +1,7 @@
 #include "script/vm.h"
 
+#include <algorithm>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 
@@ -36,7 +38,7 @@ void Vm::interrupt(lua_State* L, int gc) {
   if (gc >= 0) return;  // GC step, not a safepoint
   Vm* vm = static_cast<Vm*>(lua_callbacks(L)->userdata);
   if (!vm->deadline_) return;
-  if (!vm->exceeded_) {
+  if (!vm->exceeded_message_ref_) {
     if (++vm->interrupt_counter_ < 256) return;  // read the clock every 256 safepoints
     vm->interrupt_counter_ = 0;
     if (vm->deadline_pending_) {
@@ -44,9 +46,9 @@ void Vm::interrupt(lua_State* L, int gc) {
       return;
     }
     if (Clock::now() < *vm->deadline_) return;
-    vm->exceeded_ = true;
+    vm->exceeded_message_ref_ = vm->active_budget_->message_ref;
   }
-  lua_getref(L, vm->budget_message_ref_);
+  lua_getref(L, vm->exceeded_message_ref_);
   lua_error(L);
 }
 
@@ -86,12 +88,18 @@ std::unique_ptr<Vm> Vm::create(const VmOptions& options) {
   vm->error_handler_ref_ = lua_ref(L, -1);
   lua_pop(L, 1);
 
-  char msg[96];
-  std::snprintf(msg, sizeof msg, "script exceeded its execution budget (%d ms)", static_cast<int>(options.budget_ms));
-  lua_pushstring(L, msg);
-  vm->budget_message_ref_ = lua_ref(L, -1);
-  lua_pop(L, 1);
+  vm->callback_budget_ = vm->make_budget(options.budget_ms);
+  vm->load_budget_ = vm->make_budget(std::max(options.budget_ms, options.load_budget_ms));
   return vm;
+}
+
+Vm::Budget Vm::make_budget(double ms) {
+  char msg[96];
+  std::snprintf(msg, sizeof msg, "script exceeded its execution budget (%d ms)", static_cast<int>(ms));
+  lua_pushstring(L_, msg);
+  int ref = lua_ref(L_, -1);
+  lua_pop(L_, 1);
+  return {ms, ref};
 }
 
 Vm::~Vm() {
@@ -116,33 +124,37 @@ Status Vm::load(lua_State* T, std::string_view chunkname, std::string_view sourc
   return Status::success();
 }
 
-std::optional<CallError> Vm::pcall(lua_State* T, int nargs, int nresults) {
+std::optional<CallError> Vm::pcall(lua_State* T, int nargs, int nresults, CallKind kind) {
   int fidx = lua_gettop(T) - nargs;
   lua_getref(T, error_handler_ref_);
   lua_insert(T, fidx);
 
-  // A nested call starts the outer deadline if pending and gets the earlier of the two deadlines.
+  // Top-level chunks get more time for setup. Nested requires still share the caller's deadline.
   if (deadline_pending_) start_deadline();
+  const Budget* budget = kind == CallKind::Load ? &load_budget_ : &callback_budget_;
+  const Budget* prev_budget = active_budget_;
   auto prev_deadline = deadline_;
-  bool prev_exceeded = exceeded_;
+  int prev_exceeded = exceeded_message_ref_;
   if (prev_deadline) {
-    auto deadline = Clock::now() + std::chrono::duration_cast<Clock::duration>(
-                                       std::chrono::duration<double, std::milli>(options_.budget_ms));
-    if (*prev_deadline < deadline) deadline = *prev_deadline;
-    deadline_ = deadline;
+    auto deadline = deadline_after(budget->ms);
+    if (deadline < *prev_deadline) {
+      deadline_ = deadline;
+      active_budget_ = budget;
+    }
   } else {
+    active_budget_ = budget;
     deadline_ = Clock::time_point{};  // set at the first clock check (start_deadline())
     deadline_pending_ = true;
   }
-  exceeded_ = false;
+  exceeded_message_ref_ = 0;
   interrupt_counter_ = 0;
 
   int status = lua_pcall(T, nargs, nresults, fidx);
 
-  bool exceeded = exceeded_;
+  active_budget_ = prev_budget;
   deadline_ = prev_deadline;
   deadline_pending_ = false;  // a nested call started the outer deadline above
-  exceeded_ = prev_exceeded || (exceeded && prev_deadline.has_value());
+  if (prev_exceeded || !prev_deadline) exceeded_message_ref_ = prev_exceeded;
   lua_remove(T, fidx);  // the handler
 
   if (status == LUA_OK) return std::nullopt;
@@ -155,9 +167,12 @@ std::optional<CallError> Vm::pcall(lua_State* T, int nargs, int nresults) {
   return err;
 }
 
+Vm::Clock::time_point Vm::deadline_after(double ms) const {
+  return Clock::now() + std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double, std::milli>(ms));
+}
+
 void Vm::start_deadline() {
-  deadline_ = Clock::now() + std::chrono::duration_cast<Clock::duration>(
-                                 std::chrono::duration<double, std::milli>(options_.budget_ms));
+  deadline_ = deadline_after(active_budget_->ms);
   deadline_pending_ = false;
 }
 

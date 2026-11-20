@@ -40,6 +40,7 @@ namespace dreamsy::script {
 struct HostOptions {
   uint32_t seed = 1;
   double budget_ms = 250;
+  double load_budget_ms = 2000;
   size_t memory_limit = 64u * 1024 * 1024;
   double tick_rate = 60;
   std::function<double()> clock;             // unix seconds for clock.now(); default: wall clock
