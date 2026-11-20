@@ -38,6 +38,28 @@ namespace dreamsy::world {
 struct Entity;
 using EntityId = Id<Entity>;
 
+// Props read every frame for many entities; their indices are cached per type (TypeInfo::hot).
+enum class Hot : uint8_t {
+  Position, Rotation, Scale, Visible, ZIndex, Texture, Size, Anchor,
+  FlipH, FlipV, Modulate, Blend, Emissive, Anim, AutoFlip, LockRotation,
+  Count
+};
+std::string_view hot_name(Hot key);
+
+// Entity types checked every frame, so the checks compare integers instead of type names.
+enum class Kind : uint8_t { Other, Sprite2D, Text2D, TileMap2D, Particles2D, Body2D, Light2D, Lighting2D, Camera2D };
+
+// Per-type data computed once (type_info()) so prop reads, the hottest lookup, don't rebuild it.
+struct TypeInfo {
+  Kind kind = Kind::Other;
+  bool ui = false;                             // UIPanel, UIText, UIButton, ... (name starts with "UI")
+  std::vector<std::optional<Value>> defaults;  // by prop index; nullopt = no default
+  int16_t hot[static_cast<int>(Hot::Count)];   // prop index per Hot key, -1 = not a prop of this type
+  // Prop index of z, height, z_velocity, z_gravity_scale (-1 = not a prop of this type).
+  int elevation[4] = {-1, -1, -1, -1};
+};
+const TypeInfo& type_info(const pkg::EntityType& type);
+
 // How a scene is projected (§14.5): manifest `view`, overridden per scene.
 enum class ViewMode : uint8_t { Side, TopDown, Oblique, Iso };
 const char* view_mode_name(ViewMode v);
@@ -50,6 +72,7 @@ struct Entity {
   uint32_t handle = 0;  // script handle: 1, 2, 3, ... never reused
   std::string id;
   const pkg::EntityType* type = nullptr;
+  const TypeInfo* info = nullptr;  // type_info(*type), set with `type`
   std::string name;
   std::vector<std::string> scripts;
   std::vector<std::string> tags;  // insertion order, no duplicates
@@ -136,18 +159,31 @@ class World {
   // Depth-first, tree order (the entity itself first).
   std::vector<EntityId> walk(EntityId from) const;
   std::vector<EntityId> walk() const { return walk(root_); }
+  // walk() without the copy, cached until the tree changes: only for loops that don't create, remove or move entities.
+  const std::vector<EntityId>& order() const;
   std::vector<EntityId> tagged(std::string_view tag) const;
 
   // ---- props
 
   // The prop value: set value, else the catalog default (colors parsed to RGBA), else nullopt.
   std::optional<Value> get_prop(const Entity& e, std::string_view key) const;
+  // The set value or cached default without copying (nullptr if neither); not for elevation keys.
+  const Value* peek(const Entity& e, int index) const;
   // Typed shortcuts (0 / false / "" / (0,0) when the prop is missing or unset).
   double num(const Entity& e, std::string_view key) const;
   bool flag(const Entity& e, std::string_view key) const;
   std::string str(const Entity& e, std::string_view key) const;
+  // str() without the copy; valid until the prop is next written.
+  std::string_view str_view(const Entity& e, std::string_view key) const;
   Point vec(const Entity& e, std::string_view key) const;
   bool visible(const Entity& e) const;  // own `visible` prop (not the parents')
+  // The same reads by Hot key, without matching prop names.
+  static int index(const Entity& e, Hot key);
+  const Value* peek(const Entity& e, Hot key) const;
+  double num(const Entity& e, Hot key) const;
+  bool flag(const Entity& e, Hot key) const;
+  std::string_view str_view(const Entity& e, Hot key) const;
+  Point vec(const Entity& e, Hot key) const;
   // Stores a value without checks (engine writes such as physics positions). The key must exist.
   void set_raw(Entity& e, std::string_view key, Value v);
   void unset(Entity& e, std::string_view key);
@@ -172,6 +208,8 @@ class World {
   std::unordered_map<uint32_t, EntityId> by_handle_;
   std::unordered_map<std::string, EntityId> by_id_;
   EntityId root_;
+  mutable std::vector<EntityId> order_;  // order(): the cached walk()
+  mutable bool order_stale_ = true;     // set wherever the tree changes
   uint32_t next_handle_ = 1;
   uint32_t next_auto_ = 1;
 };

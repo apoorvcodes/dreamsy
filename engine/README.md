@@ -203,6 +203,7 @@ replaced, where the behavior came from. It was deleted 2026-11-18; read any of t
 | `platform/ios/` | iOS app bundle: `Info.plist.in`, `ios.cmake` (bundle ID, signing settings) |
 | `platform/android/` | Android Gradle project: NativeActivity manifest loading `libdreamsy-player.so` |
 | `src/dev/` | E0 smoke checks (Luau, Box2D), kept for `dreamsy-tool smoke` |
+| `apps/bench/` | `dreamsy-bench`: CPU time per frame by stage (see [Performance](#performance)); packages in `tests/bench/` |
 | `apps/tool/` | `dreamsy-tool`, the headless CLI; `playtest.cpp`: `playtest` (the harness's scripted playtests, JSON report) and `eval` (a Luau script in a package with kits, for kit balance sims) |
 | `apps/player/` | `dreamsy-player`, the windowed engine; `demo_scene` draws a test scene from a package's assets until E3/E6 |
 | `apps/player/embed.js` | the web player's embedding contract: package source from the query, messages to the host app (see [Embedding](#embedding-the-web-player-the-app-share-links)) |
@@ -271,6 +272,17 @@ cmake --preset debug -DDREAMSY_TESTS_ONLY="rpg;games"    # build only some tests
 - Simulation code never reads the clock or OS randomness; use `Rng` and the tick counter (§14.4).
 - Builds use `-ffp-contract=off -fno-fast-math` everywhere. The physics golden-hash test fails if
   determinism breaks on any platform.
+
+## Performance
+
+`dreamsy-bench` times one frame's CPU work per stage (`step`, `draw`, `sort`, `geometry`; no GPU):
+
+```sh
+./build/release/dreamsy-bench                          # tests/bench/stress: 5,000 animated sprites + 200 bodies
+./build/release/dreamsy-bench tests/bench/scripted     # 2,000 entities each running onTick + a timer
+./build/release/dreamsy-bench ../games/showcase/cloud-hopper --json
+node build/web/dreamsy-bench.js                        # the same in WASM (web preset)
+```
 
 ## Checks beyond unit tests
 

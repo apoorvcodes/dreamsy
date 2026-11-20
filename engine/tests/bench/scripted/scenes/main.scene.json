@@ -1,0 +1,10 @@
+{
+  "format": "0",
+  "root": "world",
+  "entities": {
+    "world": { "type": "Node2D", "scripts": ["scripts/client/spawner.luau"], "children": ["camera", "crowd", "template"] },
+    "camera": { "type": "Camera2D", "props": { "position": [640, 360] } },
+    "crowd": { "type": "Node2D" },
+    "template": { "type": "Sprite2D", "props": { "size": [8, 8], "color": "#41a6f6", "visible": false }, "scripts": ["scripts/client/mover.luau"] }
+  }
+}

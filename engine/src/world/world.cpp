@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 
 #include "pkg/text.h"
 
@@ -47,22 +48,101 @@ bool is_elevation_key(std::string_view key) {
   return key == "z" || key == "height" || key == "z_velocity" || key == "z_gravity_scale";
 }
 
+namespace {
+
+const TypeInfo& info_of(const Entity& e) { return e.info ? *e.info : type_info(*e.type); }
+
+// Elevation slot (0 z, 1 height, 2 z_velocity, 3 z_gravity_scale) of an elevation key, else -1.
+int elevation_slot(std::string_view key) {
+  if (key == "z") return 0;
+  if (key == "height") return 1;
+  if (key == "z_velocity") return 2;
+  if (key == "z_gravity_scale") return 3;
+  return -1;
+}
+
+const double* elevation_member(const Entity& e, int slot) {
+  switch (slot) {
+    case 0: return &e.z;
+    case 1: return &e.height;
+    case 2: return &e.z_velocity;
+    default: return &e.z_gravity_scale;
+  }
+}
+
+// The Entity field behind prop index `i` if it is one of the type's elevation props.
+const double* elevation_at(const Entity& e, int i) {
+  const TypeInfo& info = info_of(e);
+  for (int slot = 0; slot < 4; ++slot)
+    if (info.elevation[slot] == i) return elevation_member(e, slot);
+  return nullptr;
+}
+
+}  // namespace
+
+std::string_view hot_name(Hot key) {
+  switch (key) {
+    case Hot::Position: return "position";
+    case Hot::Rotation: return "rotation";
+    case Hot::Scale: return "scale";
+    case Hot::Visible: return "visible";
+    case Hot::ZIndex: return "z_index";
+    case Hot::Texture: return "texture";
+    case Hot::Size: return "size";
+    case Hot::Anchor: return "anchor";
+    case Hot::FlipH: return "flip_h";
+    case Hot::FlipV: return "flip_v";
+    case Hot::Modulate: return "modulate";
+    case Hot::Blend: return "blend";
+    case Hot::Emissive: return "emissive";
+    case Hot::Anim: return "anim";
+    case Hot::AutoFlip: return "auto_flip";
+    case Hot::LockRotation: return "lock_rotation";
+    case Hot::Count: break;
+  }
+  return "";
+}
+
+const TypeInfo& type_info(const pkg::EntityType& type) {
+  // Built once for the immutable catalog; static init is thread-safe.
+  static const std::unordered_map<const pkg::EntityType*, TypeInfo> infos = [] {
+    std::unordered_map<const pkg::EntityType*, TypeInfo> out;
+    for (const pkg::EntityType& t : pkg::Catalog::get().types()) {
+      TypeInfo info;
+      static const std::pair<const char*, Kind> kKinds[] = {
+          {"Sprite2D", Kind::Sprite2D},       {"Text2D", Kind::Text2D}, {"TileMap2D", Kind::TileMap2D},
+          {"Particles2D", Kind::Particles2D}, {"Body2D", Kind::Body2D}, {"Light2D", Kind::Light2D},
+          {"Lighting2D", Kind::Lighting2D},   {"Camera2D", Kind::Camera2D}};
+      for (const auto& [name, kind] : kKinds)
+        if (t.name == name) info.kind = kind;
+      info.ui = t.name.rfind("UI", 0) == 0;
+      for (int k = 0; k < static_cast<int>(Hot::Count); ++k)
+        info.hot[k] = static_cast<int16_t>(prop_index(t, hot_name(static_cast<Hot>(k))));
+      info.defaults.reserve(t.props.size());
+      for (size_t i = 0; i < t.props.size(); ++i) {
+        info.defaults.push_back(default_value(t.props[i]));
+        const int slot = elevation_slot(t.props[i].name);
+        if (slot >= 0) info.elevation[slot] = static_cast<int>(i);
+      }
+      out.emplace(&t, std::move(info));
+    }
+    return out;
+  }();
+  auto it = infos.find(&type);
+  DREAMSY_CHECK(it != infos.end(), "type_info: type is not from the catalog");
+  return it->second;
+}
+
 // Only for types whose catalog has the prop: `z` on a Camera2D is not a prop (and Vec3 `.z`
 // is not an entity prop at all), so those keys fall through to the normal "no property" path.
 const double* elevation_field(const Entity& e, std::string_view key) {
-  if (!is_elevation_key(key) || prop_index(*e.type, key) < 0) return nullptr;
-  if (key == "z") return &e.z;
-  if (key == "height") return &e.height;
-  if (key == "z_velocity") return &e.z_velocity;
-  return &e.z_gravity_scale;
+  const int slot = elevation_slot(key);
+  if (slot < 0 || info_of(e).elevation[slot] < 0) return nullptr;
+  return elevation_member(e, slot);
 }
 
 double* elevation_field(Entity& e, std::string_view key) {  // same as above, for writing
-  if (!is_elevation_key(key) || prop_index(*e.type, key) < 0) return nullptr;
-  if (key == "z") return &e.z;
-  if (key == "height") return &e.height;
-  if (key == "z_velocity") return &e.z_velocity;
-  return &e.z_gravity_scale;
+  return const_cast<double*>(elevation_field(static_cast<const Entity&>(e), key));
 }
 
 bool parse_color(std::string_view text, double out[4]) {
@@ -109,8 +189,13 @@ std::string js_string(const Value& v) {
 }
 
 int prop_index(const pkg::EntityType& type, std::string_view key) {
-  for (size_t i = 0; i < type.props.size(); ++i)
-    if (type.props[i].name == key) return static_cast<int>(i);
+  // Reject on length and first letter inline: string == string_view calls memcmp for every prop.
+  if (key.empty()) return -1;
+  for (size_t i = 0; i < type.props.size(); ++i) {
+    const std::string& name = type.props[i].name;
+    if (name.size() == key.size() && name[0] == key[0] && std::memcmp(name.data(), key.data(), key.size()) == 0)
+      return static_cast<int>(i);
+  }
   return -1;
 }
 
@@ -172,10 +257,10 @@ Point apply(const Mat2D& m, double x, double y) { return {m.a * x + m.c * y + m.
 double rotation_of(const Mat2D& m) { return std::atan2(m.b, m.a); }
 
 Mat2D World::local(const Entity& e) const {
-  if (prop_index(*e.type, "position") < 0 || !e.is_2d()) return {};
-  const Point p = vec(e, "position");
-  const double r = num(e, "rotation") * M_PI / 180;
-  std::optional<Value> sv = get_prop(e, "scale");
+  if (index(e, Hot::Position) < 0 || !e.is_2d()) return {};
+  const Point p = vec(e, Hot::Position);
+  const double r = num(e, Hot::Rotation) * M_PI / 180;
+  const Value* sv = peek(e, Hot::Scale);
   const double sx = sv ? sv->v[0] : 1, sy = sv ? sv->v[1] : 1;
   const double cos = std::cos(r), sin = std::sin(r);
   return {cos * sx, sin * sx, -sin * sy, cos * sy, p.x, p.y};
@@ -204,6 +289,7 @@ Result<EntityId> World::create(std::string_view id_in, std::string_view type_nam
   e.handle = next_handle_++;
   e.id = id;
   e.type = type;
+  e.info = &type_info(*type);
   e.name = name.value_or(id);
   e.scripts = std::move(scripts);
   e.props.resize(type->props.size());
@@ -217,6 +303,7 @@ Result<EntityId> World::create(std::string_view id_in, std::string_view type_nam
 void World::attach(EntityId child_id, EntityId parent_id, int index) {
   Entity* child = get(child_id);
   if (!child) return;
+  order_stale_ = true;
   if (Entity* old = get(child->parent)) {
     auto it = std::find(old->children.begin(), old->children.end(), child_id);
     if (it != old->children.end()) old->children.erase(it);
@@ -242,6 +329,7 @@ std::vector<EntityId> World::remove(EntityId e) {
   };
   collect(e);
   if (out.empty()) return out;
+  order_stale_ = true;
   attach(e, EntityId{});
   for (EntityId x : out) {
     const Entity* ent = get(x);
@@ -260,6 +348,7 @@ void World::clear() {
   by_id_.clear();
   by_handle_.clear();
   root_ = EntityId{};
+  order_stale_ = true;
 }
 
 std::vector<EntityId> World::load_scene(const pkg::SceneDef& scene, const Warn& warn) {
@@ -311,8 +400,12 @@ std::vector<EntityId> World::load_scene(const pkg::SceneDef& scene, const Warn& 
       }
       set_raw(e, prop_alias(e, key), std::move(v).value());
     }
-    if (alive(parent)) attach(eid, parent);
-    else root_ = eid;
+    if (alive(parent)) {
+      attach(eid, parent);
+    } else {
+      root_ = eid;
+      order_stale_ = true;
+    }
     created.push_back(eid);
     std::vector<std::string> kids = src->children;
     for (const std::string& c : kids) build(c, eid);
@@ -354,9 +447,17 @@ std::vector<EntityId> World::walk(EntityId from) const {
   return out;
 }
 
+const std::vector<EntityId>& World::order() const {
+  if (order_stale_) {
+    order_ = walk(root_);
+    order_stale_ = false;
+  }
+  return order_;
+}
+
 std::vector<EntityId> World::tagged(std::string_view tag) const {
   std::vector<EntityId> out;
-  for (EntityId id : walk())
+  for (EntityId id : order())
     if (get(id)->has_tag(tag)) out.push_back(id);
   return out;
 }
@@ -364,37 +465,78 @@ std::vector<EntityId> World::tagged(std::string_view tag) const {
 // ================================================================ props
 
 std::optional<Value> World::get_prop(const Entity& e, std::string_view key) const {
-  int i = prop_index(*e.type, key);
+  const int i = prop_index(*e.type, key);
   if (i < 0) return std::nullopt;
-  if (const double* f = elevation_field(e, key)) return Value::number(*f);
-  if (e.props[static_cast<size_t>(i)]) return e.props[static_cast<size_t>(i)];
-  return default_value(e.type->props[static_cast<size_t>(i)]);
+  if (const double* f = elevation_at(e, i)) return Value::number(*f);
+  if (const Value* v = peek(e, i)) return *v;
+  return std::nullopt;
+}
+
+const Value* World::peek(const Entity& e, int i) const {
+  const std::optional<Value>& set = e.props[static_cast<size_t>(i)];
+  if (set) return &*set;
+  const std::optional<Value>& d = info_of(e).defaults[static_cast<size_t>(i)];
+  return d ? &*d : nullptr;
 }
 
 double World::num(const Entity& e, std::string_view key) const {
-  auto v = get_prop(e, key);
+  const int i = prop_index(*e.type, key);
+  if (i < 0) return 0;
+  if (const double* f = elevation_at(e, i)) return *f;
+  const Value* v = peek(e, i);
   return v && v->kind == ValueKind::Number ? v->v[0] : 0;
 }
 
 bool World::flag(const Entity& e, std::string_view key) const {
-  auto v = get_prop(e, key);
+  const int i = prop_index(*e.type, key);
+  if (i < 0 || elevation_at(e, i)) return false;
+  const Value* v = peek(e, i);
   return v && v->kind == ValueKind::Bool && v->b;
 }
 
-std::string World::str(const Entity& e, std::string_view key) const {
-  auto v = get_prop(e, key);
-  return v && v->kind == ValueKind::String ? v->s : std::string();
+std::string World::str(const Entity& e, std::string_view key) const { return std::string(str_view(e, key)); }
+
+std::string_view World::str_view(const Entity& e, std::string_view key) const {
+  const int i = prop_index(*e.type, key);
+  if (i < 0 || elevation_at(e, i)) return {};
+  const Value* v = peek(e, i);
+  return v && v->kind == ValueKind::String ? std::string_view(v->s) : std::string_view();
 }
 
 Point World::vec(const Entity& e, std::string_view key) const {
-  auto v = get_prop(e, key);
+  const int i = prop_index(*e.type, key);
+  if (i < 0 || elevation_at(e, i)) return {};
+  const Value* v = peek(e, i);
   if (!v || v->kind != ValueKind::Vec) return {};
   return {v->v[0], v->v[1]};
 }
 
 bool World::visible(const Entity& e) const {
-  auto v = get_prop(e, "visible");
+  const Value* v = peek(e, Hot::Visible);
   return !(v && v->kind == ValueKind::Bool && !v->b);
+}
+
+int World::index(const Entity& e, Hot key) { return info_of(e).hot[static_cast<int>(key)]; }
+const Value* World::peek(const Entity& e, Hot key) const {
+  const int i = index(e, key);
+  return i < 0 ? nullptr : peek(e, i);
+}
+double World::num(const Entity& e, Hot key) const {
+  const Value* v = peek(e, key);
+  return v && v->kind == ValueKind::Number ? v->v[0] : 0;
+}
+bool World::flag(const Entity& e, Hot key) const {
+  const Value* v = peek(e, key);
+  return v && v->kind == ValueKind::Bool && v->b;
+}
+std::string_view World::str_view(const Entity& e, Hot key) const {
+  const Value* v = peek(e, key);
+  return v && v->kind == ValueKind::String ? std::string_view(v->s) : std::string_view();
+}
+Point World::vec(const Entity& e, Hot key) const {
+  const Value* v = peek(e, key);
+  if (!v || v->kind != ValueKind::Vec) return {};
+  return {v->v[0], v->v[1]};
 }
 
 void World::set_raw(Entity& e, std::string_view key, Value v) {
@@ -499,7 +641,7 @@ Result<Value> World::coerce(const Entity& e, std::string_view key, const Value& 
 
 void World::hash_into(Hasher& h) const {
   h.add(static_cast<uint32_t>(view));
-  for (EntityId id : walk()) {
+  for (EntityId id : order()) {
     const Entity& e = *get(id);
     h.add(e.handle);
     h.str(e.id);

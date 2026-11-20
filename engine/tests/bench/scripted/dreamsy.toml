@@ -1,0 +1,15 @@
+format = "0"
+name = "Engine Stress: Scripts"
+description = "Benchmark scene for dreamsy-bench: 2,000 entities that each run their own script (onTick + a timer), like generated games' enemies."
+dimension = "2d"
+entry_scene = "scenes/main.scene.json"
+
+[players]
+min = 1
+max = 1
+
+[server]
+mode = "none"
+
+[style]
+preset = "clean"

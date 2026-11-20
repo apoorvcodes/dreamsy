@@ -637,12 +637,13 @@ std::vector<ContactEvent> Physics2D::step(double dt) {
     const b2Vec2 p = b2Body_GetPosition(r.body);
     const world::Mat2D parent = world_.global(e->parent);
     const Point l = world::apply(world::invert(parent), to_px(p.x), to_px(p.y));
-    const Point cur = world_.vec(*e, "position");
+    const Point cur = world_.vec(*e, world::Hot::Position);
     if (std::fabs(cur.x - l.x) > 1e-6 || std::fabs(cur.y - l.y) > 1e-6) world_.set_raw(*e, "position", world::Value::vec(l.x, l.y));
-    if (!world_.flag(*e, "lock_rotation")) {
+    if (!world_.flag(*e, world::Hot::LockRotation)) {
       const double parent_rot = world::rotation_of(parent);
       const double deg = (angle_of(b2Body_GetRotation(r.body)) - parent_rot) * 180 / kPi;
-      if (std::fabs(deg - world_.num(*e, "rotation")) > 1e-6) world_.set_raw(*e, "rotation", world::Value::number(deg));
+      if (std::fabs(deg - world_.num(*e, world::Hot::Rotation)) > 1e-6)
+        world_.set_raw(*e, "rotation", world::Value::number(deg));
     }
   }
 

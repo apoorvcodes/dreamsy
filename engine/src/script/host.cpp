@@ -286,6 +286,11 @@ void Host::require_module(lua_State* L, const std::string& from, const std::stri
 
 // ================================================================ ticks and scenes
 
+std::vector<Host::TickCb>::iterator Host::find_tick(int64_t id) {
+  auto it = std::lower_bound(ticks_.begin(), ticks_.end(), id, [](const TickCb& t, int64_t x) { return t.id < x; });
+  return it != ticks_.end() && it->id == id ? it : ticks_.end();
+}
+
 // One fixed tick, in engine-web's order (Game.step): input edges, flush, room messages, store
 // purchases, dialogs, timers, tweens, onTick, physics (+ bodyEntered/Exited, tileTouched),
 // sprite animation and particles, camera, scene change.
@@ -355,10 +360,11 @@ void Host::step() {
   step_tweens(sdt);
 
   // onTick: a snapshot; callbacks removed mid-iteration are skipped, new ones start next tick
-  std::vector<TickCb> snapshot = ticks_;
+  // ticks_ is sorted by id (ids only grow), so the "still connected?" check is a binary search.
+  std::vector<TickCb>& snapshot = tick_snapshot_;
+  snapshot = ticks_;
   for (const TickCb& cb : snapshot) {
-    bool alive = std::any_of(ticks_.begin(), ticks_.end(), [&](const TickCb& t) { return t.id == cb.id; });
-    if (!alive) continue;
+    if (find_tick(cb.id) == ticks_.end()) continue;
     call_ref(cb.ref, cb.inst, 1, [&](lua_State* S) { lua_pushnumber(S, sdt); });
   }
 
@@ -465,7 +471,7 @@ int Host::dispatch(lua_State* L) {
     }
     case OP_UNTICK: {
       auto id = static_cast<int64_t>(num_arg(L, 2));
-      auto it = std::find_if(ticks_.begin(), ticks_.end(), [&](const TickCb& t) { return t.id == id; });
+      auto it = find_tick(id);
       if (it != ticks_.end()) {
         lua_unref(L, it->ref);
         ticks_.erase(it);

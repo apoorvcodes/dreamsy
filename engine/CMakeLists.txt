@@ -326,6 +326,19 @@ if(DREAMSY_BUILD_PLAYER)
   dreamsy_target_defaults(dreamsy_play)
   target_link_libraries(dreamsy_play PUBLIC dreamsy_script dreamsy_render dreamsy_overlay)
 
+  # dreamsy-bench: CPU time per frame by stage, no GPU (README "Performance"); on the web it runs under Node.
+  if(NOT IOS AND NOT ANDROID)
+    add_executable(dreamsy-bench apps/bench/main.cpp)
+    dreamsy_target_defaults(dreamsy-bench)
+    target_link_libraries(dreamsy-bench PRIVATE dreamsy_play dreamsy_kits_embedded)
+    target_compile_definitions(dreamsy-bench PRIVATE
+      DREAMSY_BENCH_DEFAULT_PACKAGE="${CMAKE_CURRENT_SOURCE_DIR}/tests/bench/stress")
+    dreamsy_link_dmath(dreamsy-bench)
+    if(EMSCRIPTEN)
+      target_link_options(dreamsy-bench PRIVATE -sENVIRONMENT=node -sALLOW_MEMORY_GROWTH=1 -sNODERAWFS=1)
+    endif()
+  endif()
+
   add_library(dreamsy_render_gpu STATIC src/render/renderer.cpp)
   dreamsy_target_defaults(dreamsy_render_gpu)
   target_link_libraries(dreamsy_render_gpu PUBLIC dreamsy_render dreamsy_sokol)

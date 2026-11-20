@@ -1,0 +1,19 @@
+{
+  "format": "0",
+  "root": "world",
+  "entities": {
+    "world": {
+      "type": "Node2D",
+      "scripts": ["scripts/client/spawner.luau"],
+      "children": ["camera", "floor", "ceiling", "wall_l", "wall_r", "crowd", "bodies", "hud"]
+    },
+    "camera": { "type": "Camera2D", "props": { "position": [640, 360] } },
+    "floor": { "type": "Body2D", "props": { "position": [640, 712], "body": "static", "size": [1280, 16] } },
+    "ceiling": { "type": "Body2D", "props": { "position": [640, 8], "body": "static", "size": [1280, 16] } },
+    "wall_l": { "type": "Body2D", "props": { "position": [8, 360], "body": "static", "size": [16, 720] } },
+    "wall_r": { "type": "Body2D", "props": { "position": [1272, 360], "body": "static", "size": [16, 720] } },
+    "crowd": { "type": "Node2D" },
+    "bodies": { "type": "Node2D" },
+    "hud": { "type": "UIText", "props": { "anchor": "top_left", "offset": [8, 8], "text": "stress", "font_size": 16 } }
+  }
+}

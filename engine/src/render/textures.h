@@ -11,10 +11,10 @@
 // draws a solid rect (engine-web does the same).
 #pragma once
 
-#include <map>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 #include "render/atlas.h"
@@ -77,7 +77,12 @@ class TextureStore {
   Atlas& atlas_;
   bool pixel_art_;
   std::vector<Entry> entries_;                     // ImageId.value - 1
-  std::map<std::string, ImageId, std::less<>> by_asset_;
+  // Hashes a string_view, so find_asset() looks names up without building a std::string.
+  struct NameHash {
+    using is_transparent = void;
+    size_t operator()(std::string_view s) const { return std::hash<std::string_view>{}(s); }
+  };
+  std::unordered_map<std::string, ImageId, NameHash, std::equal_to<>> by_asset_;
 };
 
 }  // namespace dreamsy::render

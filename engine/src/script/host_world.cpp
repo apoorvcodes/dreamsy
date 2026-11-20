@@ -301,6 +301,8 @@ Status Host::set_prop(EntityId id, const std::string& key, const std::optional<V
 
 void Host::after_transform(EntityId e) {
   if (!physics_) return;
+  const Entity* ent = world_.get(e);
+  if (ent && ent->children.empty()) return physics_->sync_transform(e);  // no subtree to walk
   for (EntityId x : world_.walk(e)) physics_->sync_transform(x);
 }
 
@@ -651,9 +653,10 @@ int Host::tween_op(lua_State* L) {
 // ================================================================ sprite animation and particles
 
 // Parsed data/anims/<name>.json (nullptr when missing or invalid; logged once).
-const pkg::AnimSet* Host::anim_set(const std::string& path) {
-  auto it = anims_cache_.find(path);
+const pkg::AnimSet* Host::anim_set(std::string_view path_view) {
+  auto it = anims_cache_.find(path_view);
   if (it == anims_cache_.end()) {
+    const std::string path(path_view);
     std::optional<pkg::AnimSet> set;
     auto text = pkg_->files.text(path);
     if (!text) {
@@ -669,7 +672,7 @@ const pkg::AnimSet* Host::anim_set(const std::string& path) {
 }
 
 namespace {
-const pkg::Anim* find_anim(const pkg::AnimSet& set, const std::string& name) {
+const pkg::Anim* find_anim(const pkg::AnimSet& set, std::string_view name) {
   for (const auto& [n, a] : set)
     if (n == name) return &a;
   return nullptr;
@@ -708,12 +711,13 @@ Status Host::play_anim(EntityId id, const std::string& name, bool restart) {
 
 void Host::advance_anim(EntityId id, double dt) {
   Entity* e = world_.get(id);
-  const std::string name = world_.str(*e, "anim");
+  // Valid until `anim` is written, which happens only after finished_name copies it.
+  const std::string_view name = world_.str_view(*e, world::Hot::Anim);
   if (name.empty()) {
     e->anim_name.clear();
     return;
   }
-  const pkg::AnimSet* set = anim_set(world_.str(*e, "anims"));
+  const pkg::AnimSet* set = anim_set(world_.str_view(*e, "anims"));
   e = world_.get(id);
   const pkg::Anim* a = set ? find_anim(*set, name) : nullptr;
   if (!a || a->frames.empty()) {
@@ -736,20 +740,21 @@ void Host::advance_anim(EntityId id, double dt) {
     finished = !e->anim_done;
   }
   const std::string& tex = a->frames[static_cast<size_t>(f)];
-  const std::optional<Value>& cur = e->props[static_cast<size_t>(world::prop_index(*e->type, "texture"))];
+  const std::optional<Value>& cur = e->props[static_cast<size_t>(world::World::index(*e, world::Hot::Texture))];
   if (!cur || cur->s != tex) world_.set_raw(*e, "texture", Value::string(tex));
   if (!finished) return;
   e->anim_done = true;
+  const std::string finished_name(name);  // scripts below may change `anim`
   const EntityId owner = e->anim_owner;
   for (EntityId target : {id, owner}) {
     if (target.is_null() || !world_.alive(target)) continue;
     fire(target, "animFinished", [&](lua_State* S) {
-      push_str(S, name);
+      push_str(S, finished_name);
       return 1;
     });
   }
   e = world_.get(id);
-  if (a->next && e && world_.str(*e, "anim") == name) {
+  if (a->next && e && world_.str_view(*e, world::Hot::Anim) == finished_name) {
     world_.set_raw(*e, "anim", Value::string(*a->next));
     advance_anim(id, 0);
   }
@@ -792,25 +797,28 @@ Status Host::burst(EntityId id, double n) {
 }
 
 void Host::step_sprites_and_particles(double sdt) {
-  std::vector<EntityId> sprites, emitters;
-  for (EntityId id : world_.walk()) {
-    const std::string& t = world_.get(id)->type->name;
-    if (t == "Sprite2D") sprites.push_back(id);
-    else if (t == "Particles2D") emitters.push_back(id);
+  std::vector<EntityId>& sprites = scratch_sprites_;
+  std::vector<EntityId>& emitters = scratch_emitters_;
+  sprites.clear();
+  emitters.clear();
+  for (EntityId id : world_.order()) {
+    const world::Kind kind = world_.get(id)->info->kind;
+    if (kind == world::Kind::Sprite2D) sprites.push_back(id);
+    else if (kind == world::Kind::Particles2D) emitters.push_back(id);
   }
   for (EntityId id : sprites) {
     Entity* e = world_.get(id);
     if (!e) continue;
-    if (e->props[static_cast<size_t>(world::prop_index(*e->type, "anim"))]) {
-      const std::optional<Value>& anim = e->props[static_cast<size_t>(world::prop_index(*e->type, "anim"))];
+    const std::optional<Value>& anim = e->props[static_cast<size_t>(world::World::index(*e, world::Hot::Anim))];
+    if (anim) {
       if (anim->kind == world::ValueKind::String && !anim->s.empty()) advance_anim(id, sdt);
       e = world_.get(id);
       if (!e) continue;
     }
-    if (world_.flag(*e, "auto_flip")) {
+    if (world_.flag(*e, world::Hot::AutoFlip)) {
       std::optional<double> vx;
       for (EntityId p = e->parent; world_.alive(p); p = world_.get(p)->parent) {
-        if (world_.get(p)->type->name == "Body2D") {
+        if (world_.get(p)->info->kind == world::Kind::Body2D) {
           vx = physics_ ? physics_->velocity(p).x : 0;
           break;
         }
@@ -819,7 +827,7 @@ void Host::step_sprites_and_particles(double sdt) {
       const double gx = world_.global(id).tx;
       if (!vx) vx = std::isnan(e->last_x) || sdt <= 0 ? 0 : (gx - e->last_x) / sdt;
       e->last_x = gx;
-      const bool flip_now = world_.flag(*e, "flip_h");
+      const bool flip_now = world_.flag(*e, world::Hot::FlipH);
       const bool flip = *vx < -1 ? true : *vx > 1 ? false : flip_now;
       if (flip != flip_now) world_.set_raw(*e, "flip_h", Value::boolean(flip));
     }
@@ -846,9 +854,9 @@ EntityId Host::avatar() const {
 }
 
 EntityId Host::current_camera() const {
-  for (EntityId id : world_.walk()) {
+  for (EntityId id : world_.order()) {
     const Entity* e = world_.get(id);
-    if (e->type->name == "Camera2D" && world_.flag(*e, "current")) return id;
+    if (e->info->kind == world::Kind::Camera2D && world_.flag(*e, "current")) return id;
   }
   return {};
 }

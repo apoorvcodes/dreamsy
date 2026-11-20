@@ -39,6 +39,10 @@ void Vm::interrupt(lua_State* L, int gc) {
   if (!vm->exceeded_) {
     if (++vm->interrupt_counter_ < 256) return;  // read the clock every 256 safepoints
     vm->interrupt_counter_ = 0;
+    if (vm->deadline_pending_) {
+      vm->start_deadline();
+      return;
+    }
     if (Clock::now() < *vm->deadline_) return;
     vm->exceeded_ = true;
   }
@@ -117,12 +121,19 @@ std::optional<CallError> Vm::pcall(lua_State* T, int nargs, int nresults) {
   lua_getref(T, error_handler_ref_);
   lua_insert(T, fidx);
 
+  // A nested call starts the outer deadline if pending and gets the earlier of the two deadlines.
+  if (deadline_pending_) start_deadline();
   auto prev_deadline = deadline_;
   bool prev_exceeded = exceeded_;
-  auto deadline = Clock::now() + std::chrono::duration_cast<Clock::duration>(
-                                     std::chrono::duration<double, std::milli>(options_.budget_ms));
-  if (prev_deadline && *prev_deadline < deadline) deadline = *prev_deadline;
-  deadline_ = deadline;
+  if (prev_deadline) {
+    auto deadline = Clock::now() + std::chrono::duration_cast<Clock::duration>(
+                                       std::chrono::duration<double, std::milli>(options_.budget_ms));
+    if (*prev_deadline < deadline) deadline = *prev_deadline;
+    deadline_ = deadline;
+  } else {
+    deadline_ = Clock::time_point{};  // set at the first clock check (start_deadline())
+    deadline_pending_ = true;
+  }
   exceeded_ = false;
   interrupt_counter_ = 0;
 
@@ -130,6 +141,7 @@ std::optional<CallError> Vm::pcall(lua_State* T, int nargs, int nresults) {
 
   bool exceeded = exceeded_;
   deadline_ = prev_deadline;
+  deadline_pending_ = false;  // a nested call started the outer deadline above
   exceeded_ = prev_exceeded || (exceeded && prev_deadline.has_value());
   lua_remove(T, fidx);  // the handler
 
@@ -141,6 +153,12 @@ std::optional<CallError> Vm::pcall(lua_State* T, int nargs, int nresults) {
   err.out_of_memory = status == LUA_ERRMEM;
   if (err.out_of_memory && !prev_deadline) lua_gc(L_, LUA_GCCOLLECT, 0);
   return err;
+}
+
+void Vm::start_deadline() {
+  deadline_ = Clock::now() + std::chrono::duration_cast<Clock::duration>(
+                                 std::chrono::duration<double, std::milli>(options_.budget_ms));
+  deadline_pending_ = false;
 }
 
 lua_State* Vm::new_sandbox_thread() {

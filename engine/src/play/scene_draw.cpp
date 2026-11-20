@@ -15,10 +15,13 @@ namespace {
 using world::Entity;
 using world::EntityId;
 
-render::Color color_of(const std::optional<world::Value>& v, render::Color fallback = {}) {
+render::Color color_of(const world::Value* v, render::Color fallback = {}) {
   if (!v || v->kind != world::ValueKind::Vec || v->n != 4) return fallback;
   return {static_cast<float>(v->v[0]), static_cast<float>(v->v[1]), static_cast<float>(v->v[2]),
           static_cast<float>(v->v[3])};
+}
+render::Color color_of(const std::optional<world::Value>& v, render::Color fallback = {}) {
+  return color_of(v ? &*v : nullptr, fallback);
 }
 
 render::Color hex_color(const std::string& hex) {
@@ -56,22 +59,27 @@ class Builder {
         pixel_(render::style_from_manifest(host.package().manifest).pixel_snap),
         out_(out) {}
 
-  // z_acc: accumulated z_index; height_acc: the parent's height above the ground (2.5D `z`).
-  void visit(EntityId id, int z_acc, double height_acc) {
+  // z_acc: accumulated z_index; height_acc: the parent's height above the ground (2.5D `z`);
+  // parent: the parent's global transform, so each entity costs one product (drawing only).
+  void visit(EntityId id, int z_acc, double height_acc, const world::Mat2D& parent) {
     Entity* e = world_.get(id);
     if (!e || !world_.visible(*e)) return;  // hides the whole subtree, like engine-web
     int z = z_acc;
-    if (world::prop_index(*e->type, "z_index") >= 0) z += static_cast<int>(world_.num(*e, "z_index"));
+    if (world::World::index(*e, world::Hot::ZIndex) >= 0) z += static_cast<int>(world_.num(*e, world::Hot::ZIndex));
     const double gz = height_acc + e->z;  // this entity's height above the ground
+    const world::Mat2D m = world::mul(parent, world_.local(*e));
+    global_ = &m;
 
-    const std::string& type = e->type->name;
-    if (type == "Sprite2D") sprite(*e, id, z, gz);
-    else if (type == "Text2D") text(*e, id, z, gz);
-    else if (type == "TileMap2D") tilemap(*e, id, z, gz);
-    else if (type == "Particles2D") particles(*e, z);
+    switch (e->info->kind) {
+      case world::Kind::Sprite2D: sprite(*e, z, gz); break;
+      case world::Kind::Text2D: text(*e, z, gz); break;
+      case world::Kind::TileMap2D: tilemap(*e, z, gz); break;
+      case world::Kind::Particles2D: particles(*e, z); break;
+      default: break;
+    }
 
-    if (type.rfind("UI", 0) == 0) return;  // UI trees: play::PlatformUi::draw (ui/layout.h, ui/overlay.h)
-    for (EntityId child : e->children) visit(child, z, gz);
+    if (e->info->ui) return;  // UI trees: play::PlatformUi::draw (ui/layout.h, ui/overlay.h)
+    for (EntityId child : e->children) visit(child, z, gz, m);
   }
 
  private:
@@ -82,8 +90,9 @@ class Builder {
     bool mirrored = false;
   };
 
-  Placement place(EntityId id) const {
-    world::Mat2D m = world_.global(id);
+  // Where the visited entity is drawn (its global transform from visit()).
+  Placement place() const {
+    const world::Mat2D& m = *global_;
     world::Point p = world::apply(m, 0, 0);
     Placement out;
     out.position = {static_cast<float>(p.x), static_cast<float>(p.y)};
@@ -100,11 +109,10 @@ class Builder {
   }
 
   // `emissive` (Sprite2D, Text2D, Particles2D): drawn above the Lighting2D darkness.
-  bool emissive(const Entity& e) const { return world::prop_index(*e.type, "emissive") >= 0 && world_.flag(e, "emissive"); }
+  bool emissive(const Entity& e) const { return world_.flag(e, world::Hot::Emissive); }
 
   render::BlendMode blend(const Entity& e) const {
-    return world::prop_index(*e.type, "blend") >= 0 && world_.str(e, "blend") == "add" ? render::BlendMode::Add
-                                                                                       : render::BlendMode::Alpha;
+    return world_.str_view(e, world::Hot::Blend) == "add" ? render::BlendMode::Add : render::BlendMode::Alpha;
   }
 
   // The ground under a point for something at height gz: the top of a raised body/tile (physics),
@@ -114,20 +122,20 @@ class Builder {
     return physics_->ground_below(x, y, gz);
   }
 
-  void sprite(const Entity& e, EntityId id, int z, double gz) {
-    Placement p = place(id);
+  void sprite(const Entity& e, int z, double gz) {
+    Placement p = place();
     render::SpriteCmd s;
-    std::string tex = world_.str(e, "texture");
+    std::string_view tex = world_.str_view(e, world::Hot::Texture);
     if (!tex.empty()) s.image = textures_.find_asset(tex);
-    world::Point size = world_.vec(e, "size");
+    world::Point size = world_.vec(e, world::Hot::Size);
     s.position = p.position;
     s.rotation = p.rotation;
     s.scale = p.scale;
     s.size = {static_cast<float>(size.x), static_cast<float>(size.y)};
-    if (world_.str(e, "anchor") == "bottom") s.anchor = {0.5f, 1.0f};  // stands on its position (feet)
-    s.flip_h = world_.flag(e, "flip_h") != p.mirrored;
-    s.flip_v = world_.flag(e, "flip_v");
-    s.tint = color_of(world_.get_prop(e, "modulate"));
+    if (world_.str_view(e, world::Hot::Anchor) == "bottom") s.anchor = {0.5f, 1.0f};  // stands on its position (feet)
+    s.flip_h = world_.flag(e, world::Hot::FlipH) != p.mirrored;
+    s.flip_v = world_.flag(e, world::Hot::FlipV);
+    s.tint = color_of(world_.peek(e, world::Hot::Modulate));
     s.blend = blend(e);
     s.z = static_cast<float>(gz);
     s.height = static_cast<float>(e.height);
@@ -171,11 +179,11 @@ class Builder {
     }
   }
 
-  void text(const Entity& e, EntityId id, int z, double gz) {
+  void text(const Entity& e, int z, double gz) {
     render::TextCmd t;
     t.text = world_.str(e, "text");
     if (t.text.empty()) return;
-    Placement p = place(id);
+    Placement p = place();
     t.position = p.position;
     t.size = static_cast<float>(world_.num(e, "font_size")) * p.scale.y;
     t.color = color_of(world_.get_prop(e, "color"));
@@ -193,10 +201,10 @@ class Builder {
     out_.add(std::move(t));
   }
 
-  void tilemap(const Entity& e, EntityId id, int z, double gz) {
+  void tilemap(const Entity& e, int z, double gz) {
     if (!e.tiles) return;
     const world::TileGrid& grid = *e.tiles;
-    Placement p = place(id);
+    Placement p = place();
     const float size = static_cast<float>(world_.num(e, "tile_size"));
     if (e.height > 0 && out_.view != render::ViewMode::Side) {
       tile_blocks(e, p, size, z, gz);
@@ -259,10 +267,10 @@ class Builder {
     const world::Emitter& em = *e.emitter;
     render::Color c0 = color_of(world_.get_prop(e, "start_color")), c1 = color_of(world_.get_prop(e, "end_color"));
     double s0 = world_.num(e, "start_size"), s1 = world_.num(e, "end_size");
-    std::string tex = world_.str(e, "texture");
-    render::ImageId image = !tex.empty() ? textures_.find_asset(tex)
-                            : world_.str(e, "shape") == "circle" ? render::TextureStore::kDisc
-                                                                 : render::ImageId{};
+    std::string_view tex = world_.str_view(e, "texture");
+    render::ImageId image = !tex.empty()                              ? textures_.find_asset(tex)
+                            : world_.str_view(e, "shape") == "circle" ? render::TextureStore::kDisc
+                                                                      : render::ImageId{};
     render::BlendMode mode = blend(e);
     const bool glow = emissive(e);
     // engine-web ParticlesView blends the start and end colors in linear light, and in pixel-art
@@ -297,6 +305,7 @@ class Builder {
   render::TextureStore& textures_;
   bool pixel_ = false;  // pixel-art style (manifest)
   render::DrawList& out_;
+  const world::Mat2D* global_ = nullptr;  // the visited entity's global transform (visit())
 };
 
 // Visible with every ancestor visible (engine-web Game.effectiveVisible).
@@ -320,10 +329,10 @@ double flicker_factor(double amount, double speed, double t, double seed) {
 render::Lighting collect_lighting(script::Host& host, double cx, double cy) {
   render::Lighting out;
   world::World& w = host.world();
-  const std::vector<EntityId> all = w.walk();
+  const std::vector<EntityId>& all = w.order();
   for (EntityId id : all) {
     const Entity* e = w.get(id);
-    if (!e || e->type->name != "Lighting2D" || !effective_visible(w, id)) continue;
+    if (!e || e->info->kind != world::Kind::Lighting2D || !effective_visible(w, id)) continue;
     const render::Color ambient = color_of(w.get_prop(*e, "ambient"), {0, 0, 0, 1});
     const float darkness = static_cast<float>(w.num(*e, "darkness"));
     out.enabled = true;
@@ -339,7 +348,7 @@ render::Lighting collect_lighting(script::Host& host, double cx, double cy) {
   std::vector<Candidate> lights;
   for (EntityId id : all) {
     const Entity* e = w.get(id);
-    if (!e || e->type->name != "Light2D" || !w.flag(*e, "enabled") || !effective_visible(w, id)) continue;
+    if (!e || e->info->kind != world::Kind::Light2D || !w.flag(*e, "enabled") || !effective_visible(w, id)) continue;
     const world::Mat2D m = w.global(id);
     const double scale = std::hypot(m.a, m.b);
     const double energy = w.num(*e, "energy") *
@@ -373,7 +382,7 @@ void draw_world(script::Host& host, render::TextureStore& textures, render::Draw
   out.clear_color = hex_color(m.style.palette && !m.style.palette->empty() ? m.style.palette->front()
                               : m.style.preset == "pixel"                   ? "#1a1c2c"
                                                                             : "#20232a");
-  Builder(host, textures, out).visit(w.root(), 0, 0);
+  Builder(host, textures, out).visit(w.root(), 0, 0, world::Mat2D{});
   out.lighting = collect_lighting(host, cam.x, cam.y);
 }
 

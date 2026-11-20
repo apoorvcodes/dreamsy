@@ -243,7 +243,7 @@ class Host {
   Result<int64_t> start_tween(world::EntityId e, std::vector<world::TweenTrack> tracks, double duration,
                               const std::string& easing, double delay, bool loop, bool yoyo);
   void step_tweens(double sdt);
-  const pkg::AnimSet* anim_set(const std::string& path);
+  const pkg::AnimSet* anim_set(std::string_view path);
   Status play_anim(world::EntityId e, const std::string& name, bool restart);
   void advance_anim(world::EntityId e, double dt);
   void step_sprites_and_particles(double sdt);
@@ -293,7 +293,9 @@ class Host {
   ScriptInst session_inst_{"(session)", {}};
   ScriptInst unknown_inst_{"?", {}};
   ScriptInst* current_ = nullptr;
-  std::vector<TickCb> ticks_;
+  std::vector<TickCb> ticks_;          // sorted by id
+  std::vector<TickCb> tick_snapshot_;  // step(): this tick's callbacks, reused
+  std::vector<TickCb>::iterator find_tick(int64_t id);
   std::vector<Timer> timers_;
   std::map<int64_t, Conn> conns_;  // id order = creation order
   std::unordered_map<std::string, int> modules_;
@@ -303,7 +305,8 @@ class Host {
   // entities
   std::vector<world::Tween> tweens_;
   std::set<uint32_t> spawning_;  // handles of TileMap2Ds being spawned (tiles load at the finish call)
-  std::map<std::string, std::optional<pkg::AnimSet>> anims_cache_;
+  std::map<std::string, std::optional<pkg::AnimSet>, std::less<>> anims_cache_;  // less<>: find by string_view
+  std::vector<world::EntityId> scratch_sprites_, scratch_emitters_;              // step_sprites_and_particles(), reused
   // Per TileMap2D handle: (body handle, cell) pairs touching last tick (tileTouched fires on new ones).
   std::map<uint32_t, std::set<std::pair<uint32_t, int>>> tile_touching_;
   struct Camera {

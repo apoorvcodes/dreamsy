@@ -69,6 +69,9 @@ class Vm {
 
   using Clock = std::chrono::steady_clock;
   std::optional<Clock::time_point> deadline_;  // nullopt = no protected call running
+  // Outermost calls start their deadline at the first clock check, so short callbacks never read the clock.
+  bool deadline_pending_ = false;
+  void start_deadline();  // deadline_ = now + budget
   bool exceeded_ = false;
   int interrupt_counter_ = 0;
   int budget_message_ref_ = -1;
