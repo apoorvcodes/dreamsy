@@ -388,6 +388,14 @@ if(DREAMSY_BUILD_PLAYER)
   endif()
 endif()
 
+# Favor size for the web package loaders and Luau compiler. Keep the release speed
+# optimization for the VM, simulation and rendering that run every frame.
+if(EMSCRIPTEN)
+  foreach(target IN ITEMS dreamsy_pkg dreamsy_zip_import miniz Luau.Ast Luau.Bytecode Luau.Compiler)
+    target_compile_options(${target} PRIVATE $<$<CONFIG:Release>:-Oz>)
+  endforeach()
+endif()
+
 # ---------------------------------------------------------------- tests
 
 if(DREAMSY_BUILD_TESTS)
