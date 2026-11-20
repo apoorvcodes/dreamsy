@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- The spec index (principles, layout, roadmap, open questions) moved from `DREAMSY.MD` to `docs/README.md`.
+- CI runs install, typecheck and tests for every package on every pull request.
+
 ## v0.1.0 — 2026-11-19 ✦ first public release
 
 **Engine**
