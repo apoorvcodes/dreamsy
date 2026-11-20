@@ -1,4 +1,5 @@
 # C++ engine v2 (docs/engine.md §14): build + test on every target we support so far.
+# The fuzzers run only on pushes to main, nightly and by hand, so they don't slow down pull requests.
 name: engine
 
 on:
@@ -6,9 +7,16 @@ on:
     paths: ["engine/**", "third_party/**", "format/**", "kits/**", "games/**", ".github/workflows/engine.yml"]
   pull_request:
     paths: ["engine/**", "third_party/**", "format/**", "kits/**", "games/**", ".github/workflows/engine.yml"]
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   macos:
+    if: github.event_name != 'schedule'
     name: macOS arm64 (debug + ASan/UBSan, release)
     runs-on: macos-15
     steps:
@@ -23,6 +31,7 @@ jobs:
       - run: engine/build/release/dreamsy-tool smoke
 
   linux:
+    if: github.event_name != 'schedule'
     name: Linux x86-64 (headless, ASan/UBSan)
     runs-on: ubuntu-24.04
     steps:
@@ -34,6 +43,7 @@ jobs:
       - run: engine/build/headless/dreamsy-tool smoke
 
   web:
+    if: github.event_name != 'schedule'
     name: Web (Emscripten)
     runs-on: ubuntu-24.04
     steps:
@@ -50,6 +60,7 @@ jobs:
         run: for f in dreamsy-player.wasm dreamsy-player.js dreamsy-tool.wasm; do echo "$f $(gzip -9c $f | wc -c) bytes"; done
 
   conformance:
+    if: github.event_name != 'schedule'
     name: Conformance with the TS side (validator + script host)
     runs-on: ubuntu-24.04
     steps:
@@ -69,6 +80,7 @@ jobs:
 
   fuzz:
     name: libFuzzer (5 min per target)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
