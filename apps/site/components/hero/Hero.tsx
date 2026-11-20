@@ -1,31 +1,13 @@
-"use client";
-
 import Link from "next/link";
-import { useEffect, useRef } from "react";
 import { GITHUB, MCP_COMMAND } from "@/lib/content";
 import { CopyCommand } from "../CopyCommand";
 import { SiteNav } from "../SiteNav";
-import { startHero } from "./engine";
+import { HeroAnimation } from "./HeroAnimation";
 
 export function Hero() {
-  const hero = useRef<HTMLElement>(null);
-  const sky = useRef<HTMLCanvasElement>(null);
-  const device = useRef<HTMLCanvasElement>(null);
-  const prompt = useRef<HTMLSpanElement>(null);
-  const status = useRef<HTMLSpanElement>(null);
-  const steps = useRef<HTMLOListElement>(null);
-
-  useEffect(() => {
-    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    return startHero(
-      { hero: hero.current!, sky: sky.current!, device: device.current!, prompt: prompt.current!, status: status.current!, steps: steps.current! },
-      reduced,
-    );
-  }, []);
-
   return (
-    <section className="hero" ref={hero}>
-      <canvas className="sky" ref={sky} aria-hidden />
+    <HeroAnimation>
+      <canvas className="sky" aria-hidden />
       <SiteNav />
 
       <div className="hero-grid">
@@ -49,7 +31,8 @@ export function Hero() {
         <div className="stage">
           <canvas
             className="device"
-            ref={device}
+            width={200}
+            height={320}
             role="img"
             aria-label="A little handheld that turns ideas into games. Click it for another idea."
             title="Click for another idea"
@@ -60,16 +43,16 @@ export function Hero() {
               <span className="title">idea.txt</span>
             </div>
             <div className="window-body">
-              <span className="status" ref={status} data-state="listening">listening</span>
+              <span className="status" data-state="listening">listening</span>
               <p className="prompt-text">
-                <span className="gt">&gt;</span> <span ref={prompt} />
+                <span className="gt">&gt;</span> <span data-hero-prompt />
                 <span className="caret" aria-hidden />
               </p>
-              <ol className="steps" ref={steps} />
+              <ol className="steps" />
             </div>
           </div>
         </div>
       </div>
-    </section>
+    </HeroAnimation>
   );
 }

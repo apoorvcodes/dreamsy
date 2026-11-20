@@ -29,7 +29,7 @@ export function NavMenu({ github }: { github: string }) {
           <Link href="/kits">Kits</Link>
           <Link href="/docs">Docs</Link>
           <a href={github} target="_blank" rel="noreferrer">GitHub</a>
-          <Link className="btn btn-sm" href="/editor">Open editor</Link>
+          <Link className="btn btn-sm" href="/editor" prefetch={false}>Open editor</Link>
         </nav>
       )}
     </div>

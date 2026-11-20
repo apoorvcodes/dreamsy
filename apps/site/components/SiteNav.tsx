@@ -16,7 +16,7 @@ export function SiteNav() {
         <Link href="/docs">Docs</Link>
         <a href={GITHUB} target="_blank" rel="noreferrer">GitHub</a>
       </nav>
-      <Link className="btn btn-sm nav-cta" href="/editor">Open editor</Link>
+      <Link className="btn btn-sm nav-cta" href="/editor" prefetch={false}>Open editor</Link>
       <NavMenu github={GITHUB} />
     </header>
   );

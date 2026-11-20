@@ -55,10 +55,10 @@ async function call<T = Record<string, unknown>>(path: string, init: RequestInit
   const url = cloudUrl();
   if (!url) throw new HttpError(503, "Cloud is turned off (DREAMSY_CLOUD=0)");
   const res = await fetch(`${url}${path}`, {
+    cache: "no-store",
     ...init,
     headers: { ...(auth ? { authorization: `Bearer ${await saveKey()}` } : {}), ...init.headers },
     signal: AbortSignal.timeout(30_000),
-    cache: "no-store",
   });
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: string };
@@ -67,12 +67,20 @@ async function call<T = Record<string, unknown>>(path: string, init: RequestInit
   return res.json() as Promise<T>;
 }
 
-async function fetchBytes(path: string, auth = true) {
+async function fetchBinary(path: string, auth: boolean, revalidate?: number) {
   const url = cloudUrl();
   if (!url) throw new HttpError(503, "Cloud is turned off");
-  const res = await fetch(`${url}${path}`, { headers: auth ? { authorization: `Bearer ${await saveKey()}` } : {}, signal: AbortSignal.timeout(60_000), cache: "no-store" });
+  const res = await fetch(`${url}${path}`, {
+    headers: auth ? { authorization: `Bearer ${await saveKey()}` } : {},
+    signal: AbortSignal.timeout(60_000),
+    ...(revalidate ? { cache: "force-cache", next: { revalidate } } : { cache: "no-store" }),
+  });
   if (!res.ok) throw new HttpError(res.status === 404 ? 404 : 502, `Cloud error ${res.status}`);
-  return new Uint8Array(await res.arrayBuffer());
+  return res;
+}
+
+async function fetchBytes(path: string, auth = true) {
+  return new Uint8Array(await (await fetchBinary(path, auth)).arrayBuffer());
 }
 
 const nameOf = async (id: string) => /^name\s*=\s*"([^"]*)"/m.exec(await readFile(join(gameDir(id), "dreamsy.toml"), "utf8").catch(() => ""))?.[1] ?? id;
@@ -166,11 +174,13 @@ export async function library(q: string, before?: number) {
   const params = new URLSearchParams({ limit: "36" });
   if (q) params.set("q", q);
   if (before) params.set("before", String(before));
-  return call<{ games: LibraryGame[]; total: number; next: number | null }>(`/v1/public/games?${params}`, {}, false);
+  const init: RequestInit = !q && !before ? { cache: "force-cache", next: { revalidate: 15 } } : {};
+  return call<{ games: LibraryGame[]; total: number; next: number | null }>(`/v1/public/games?${params}`, init, false);
 }
 
 export async function publicGame(slug: string) {
-  return (await call<{ game: LibraryGame & { remixOf: string | null; version: number } }>(`/v1/public/games/${encodeURIComponent(slug)}`, {}, false)).game;
+  const init: RequestInit = { cache: "force-cache", next: { revalidate: 30 } };
+  return (await call<{ game: LibraryGame & { remixOf: string | null; version: number } }>(`/v1/public/games/${encodeURIComponent(slug)}`, init, false)).game;
 }
 
 export async function countPlay(slug: string) {
@@ -179,6 +189,16 @@ export async function countPlay(slug: string) {
 
 export async function libraryThumb(slug: string) {
   return fetchBytes(`/v1/public/games/${encodeURIComponent(slug)}/thumb`, false);
+}
+
+export function publicThumbnail(slug: string) {
+  return fetchBinary(`/v1/public/games/${encodeURIComponent(slug)}/thumb`, false, 300);
+}
+
+export async function publicDownload(slug: string) {
+  const game = await publicGame(slug);
+  const download = await fetchBinary(`/v1/public/games/${encodeURIComponent(slug)}/package`, false);
+  return { game, download };
 }
 
 export async function libraryPackage(slug: string) {

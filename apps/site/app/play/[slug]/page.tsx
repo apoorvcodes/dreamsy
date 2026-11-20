@@ -1,19 +1,31 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { cache } from "react";
 import { PlayActions } from "@/components/PlayActions";
 import { PlayFrame } from "@/components/PlayFrame";
 import { Logo } from "@/components/Logo";
 import { cloudUrl, publicGame } from "@/lib/server/cloud";
+import { HttpError } from "@/lib/server/paths";
+import { playerVersion } from "@/lib/server/player";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 30;
+
+export function generateStaticParams() {
+  return []; // Generate published games on demand, including games published after a deploy.
+}
 
 type Props = { params: Promise<{ slug: string }> };
 
-async function load(slug: string) {
+const load = cache(async (slug: string) => {
   if (!/^[a-z0-9]{4,32}$/.test(slug)) return null;
-  return publicGame(slug).catch(() => null);
-}
+  try {
+    return await publicGame(slug);
+  } catch (error) {
+    if (error instanceof HttpError && error.status === 404) return null;
+    throw error;
+  }
+});
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
@@ -34,13 +46,15 @@ export default async function Play({ params }: Props) {
   const { slug } = await params;
   const game = await load(slug);
   if (!game) notFound();
-  const src = `/player/dreamsy-player.html?api=${encodeURIComponent(cloudUrl() ?? "")}&public=${slug}`;
+  const version = await playerVersion();
+  const base = version ? `/player/${version}` : "/player";
+  const src = `${base}/dreamsy-player.html?api=${encodeURIComponent(cloudUrl() ?? "")}&public=${slug}`;
   return (
     <div className="play-page">
       <header className="play-bar">
         <Link href="/" aria-label="Dreamsy home"><Logo /></Link>
         <span className="spacer" />
-        <Link className="btn btn-light btn-sm" href="/editor">Make your own</Link>
+        <Link className="btn btn-light btn-sm" href="/editor" prefetch={false}>Make your own</Link>
       </header>
       <main className="play-main">
         <PlayFrame src={src} title={game.name} />

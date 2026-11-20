@@ -18,8 +18,8 @@ export function LibraryGrid() {
         ))}
       </div>
       <div className="game-grid">
-        {games.map((g) => (
-          <GameCard key={g.id} game={g} />
+        {games.map((g, i) => (
+          <GameCard key={g.id} game={g} eager={i === 0} />
         ))}
       </div>
     </>

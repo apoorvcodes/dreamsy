@@ -68,7 +68,8 @@ function recolor(s: Surface, sp: Sprite, x: number, y: number, color: number) {
     }
 }
 
-export function startHero(els: HeroEls, reduced: boolean) {
+export function startHero(els: HeroEls) {
+  const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
   const shell = buildShell();
   const frame = new Surface(DEVICE_W, DEVICE_H);
   const screen = new Surface(SCREEN_W, SCREEN_H);
@@ -88,7 +89,7 @@ export function startHero(els: HeroEls, reduced: boolean) {
   let floaters: Floater[] = [];
   const sparks: Spark[] = [];
 
-  const resize = () => {
+  const resizeSky = () => {
     const r = els.hero.getBoundingClientRect();
     scale = r.width < 720 ? 4 : 5;
     const w = Math.ceil(r.width / scale), h = Math.ceil(r.height / scale);
@@ -107,12 +108,8 @@ export function startHero(els: HeroEls, reduced: boolean) {
       phase: i * 1.3,
     }));
   };
-  resize();
-  const ro = new ResizeObserver(resize);
-  ro.observe(els.hero);
-
   const onDown = (e: PointerEvent) => {
-    if ((e.target as HTMLElement).closest("a,button,canvas.device")) return;
+    if (motion.matches || (e.target as HTMLElement).closest("a,button,canvas.device")) return;
     const r = els.hero.getBoundingClientRect();
     const x = (e.clientX - r.left) / scale, y = (e.clientY - r.top) / scale;
     for (let k = 0; k < 8; k++) {
@@ -123,7 +120,8 @@ export function startHero(els: HeroEls, reduced: boolean) {
   els.hero.addEventListener("pointerdown", onDown);
 
   let idx = 0;
-  let cycleStart = 0;
+  let elapsed = 0;
+  let cycleStart = 0.8;
   let built = false;
   let label = "";
   let stepsFor = -1;
@@ -160,15 +158,15 @@ export function startHero(els: HeroEls, reduced: boolean) {
   };
 
   const next = () => {
-    if (!reduced && performance.now() / 1000 - cycleStart > BUILD_END) {
+    if (!motion.matches && elapsed - cycleStart > BUILD_END) {
       lastPlay.px.set(screen.px);
       lastColors = SCREENS[idx % SCREENS.length]!;
       hasLast = true;
     }
     idx++;
     built = false;
-    if (reduced) showStatic();
-    else cycleStart = performance.now() / 1000;
+    if (motion.matches) showStatic();
+    else cycleStart = elapsed;
   };
   els.device.addEventListener("click", next);
 
@@ -218,7 +216,7 @@ export function startHero(els: HeroEls, reduced: boolean) {
     frame.blit(dctx, [WHITE, BLUE, MIST, colors[0], colors[1], SKY]);
   };
 
-  const block = () => {
+  const measureBackdrop = () => {
     const hr = els.hero.getBoundingClientRect();
     const dr = els.device.getBoundingClientRect();
     return {
@@ -229,15 +227,18 @@ export function startHero(els: HeroEls, reduced: boolean) {
     };
   };
 
+  resizeSky();
+  let backdrop = measureBackdrop();
+
   const drawSky = (now: number, dt: number) => {
     const s = sky;
     s.clear(CLEAR);
     for (const c of clouds) {
-      if (!reduced) c.x += c.v * dt;
+      c.x += c.v * dt;
       if (c.x - c.w > s.w) c.x = -c.w;
       drawCloud(s, Math.round(c.x), Math.round(c.y), c.w);
     }
-    const { x0, x1, y0, y1 } = block();
+    const { x0, x1, y0, y1 } = backdrop;
     for (let y = y0 + 5; y < y1 + 5; y++) for (let x = x0 + 5; x < x1 + 5; x++) if (shade(x, y, 6)) s.set(x, y, INK);
     s.rect(x0, y0, x1 - x0, y1 - y0, INK);
     for (let x = x0; x < x1; x++) {
@@ -253,10 +254,8 @@ export function startHero(els: HeroEls, reduced: boolean) {
         if (d <= 144 && (x + 0.5 - mx - 5) ** 2 + (y + 0.5 - my + 4) ** 2 > 110) s.set(x, y, d > 120 ? INK : SKY_LIGHT);
       }
     for (const f of floaters) {
-      if (!reduced) {
-        f.y -= f.v * dt;
-        if (f.y < -12) f.y = s.h + 8;
-      }
+      f.y -= f.v * dt;
+      if (f.y < -12) f.y = s.h + 8;
       recolor(s, f.sp, f.x + Math.sin(now * 0.8 + f.phase) * 3, f.y, f.color);
     }
     for (let i = sparks.length - 1; i >= 0; i--) {
@@ -273,28 +272,33 @@ export function startHero(els: HeroEls, reduced: boolean) {
     s.blit(sctx, [WHITE, BLUE, MIST, LINE, SKY, ICE]);
   };
 
-  const t0 = performance.now() / 1000;
-  cycleStart = t0 + 0.8;
-  let last = t0;
+  let visible = false;
+  let last = 0;
+  let lastSky = -Infinity;
   let raf = 0;
 
-  const tick = () => {
-    const nowAbs = performance.now() / 1000;
-    const dt = Math.min(0.05, nowAbs - last);
-    last = nowAbs;
-    let t = nowAbs - cycleStart;
+  const tick = (now: number) => {
+    raf = requestAnimationFrame(tick);
+    const step = (now - last) / 1000;
+    if (step < 1 / 30 - 0.001) return;
+    last = now;
+    const dt = Math.min(0.1, step);
+    elapsed += dt;
+    let t = elapsed - cycleStart;
     if (t >= CYCLE) {
       lastPlay.px.set(screen.px);
       lastColors = SCREENS[idx % SCREENS.length]!;
       hasLast = true;
       idx++;
       built = false;
-      cycleStart = nowAbs;
+      cycleStart = elapsed;
       t = 0;
     }
     drawDevice(Math.max(0, t), dt);
-    drawSky(nowAbs - t0, dt);
-    if (!reduced) raf = requestAnimationFrame(tick);
+    if (elapsed - lastSky >= 1 / 15 - 0.002) {
+      drawSky(elapsed, Math.min(0.15, elapsed - lastSky));
+      lastSky = elapsed;
+    }
   };
 
   function showStatic() {
@@ -302,16 +306,56 @@ export function startHero(els: HeroEls, reduced: boolean) {
     sc.reset();
     built = true;
     for (let i = 0; i < 90; i++) sc.update(1 / 30);
-    cycleStart = performance.now() / 1000 - BUILD_END - FADE - 1;
-    tick();
+    drawDevice(BUILD_END + FADE + 1, 0);
+    drawSky(elapsed, 0);
   }
 
-  if (reduced) showStatic();
-  else raf = requestAnimationFrame(tick);
+  const sync = () => {
+    const running = visible && !document.hidden && !motion.matches;
+    els.hero.toggleAttribute("data-paused", !running);
+    if (running && !raf) {
+      last = performance.now();
+      raf = requestAnimationFrame(tick);
+    } else if (!running && raf) {
+      cancelAnimationFrame(raf);
+      raf = 0;
+    }
+  };
+  const onMotionChange = () => {
+    hasLast = false;
+    built = false;
+    cycleStart = elapsed;
+    sparks.length = 0;
+    if (motion.matches && visible && !document.hidden) showStatic();
+    sync();
+  };
+  const visibility = new IntersectionObserver(([entry]) => {
+    visible = Boolean(entry?.isIntersecting);
+    if (visible && motion.matches && !document.hidden) showStatic();
+    sync();
+  });
+  const resize = new ResizeObserver(() => {
+    resizeSky();
+    backdrop = measureBackdrop();
+    if (visible && motion.matches && !document.hidden) drawSky(elapsed, 0);
+    lastSky = -Infinity;
+  });
+  visibility.observe(els.hero);
+  resize.observe(els.hero);
+  resize.observe(els.device);
+  motion.addEventListener("change", onMotionChange);
+  const onVisibilityChange = () => {
+    if (visible && motion.matches && !document.hidden) showStatic();
+    sync();
+  };
+  document.addEventListener("visibilitychange", onVisibilityChange);
 
   return () => {
     cancelAnimationFrame(raf);
-    ro.disconnect();
+    resize.disconnect();
+    visibility.disconnect();
+    motion.removeEventListener("change", onMotionChange);
+    document.removeEventListener("visibilitychange", onVisibilityChange);
     els.hero.removeEventListener("pointerdown", onDown);
     els.device.removeEventListener("click", next);
   };

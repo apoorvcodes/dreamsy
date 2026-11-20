@@ -18,6 +18,12 @@ Set `SITE_URL` (for example `https://dreamsy.example`) so canonical links, Open 
 `sitemap.xml` use the real domain; it falls back to `http://127.0.0.1:3100`. Regenerate the OG image and app icons
 with `pnpm -C apps/site brand` after changing the logo (`components/Logo.tsx`) or the headline.
 
+Library cards use pre-cropped 4:3 WebP screenshots at 480 and 720 pixels wide in `public/games`.
+The Fly image prepares versioned player assets at build time. Next.js negotiates gzip for the
+player JavaScript and WASM. For a local build
+with the same asset URLs and caching, run `node apps/site/scripts/prepare-player.mjs engine/build/web`
+from the repository root after building the engine's web player, then restart the site.
+
 ## Cloud save and the library
 
 Every successful build, sprite or music edit and restore is also saved to the Dreamsy cloud (`services/cloud`, default
