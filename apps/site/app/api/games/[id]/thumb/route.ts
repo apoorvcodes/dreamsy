@@ -11,7 +11,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     const bytes = await readFile(join(dataDir(id), "thumb.jpg")).catch(() => {
       throw new HttpError(404, "No thumbnail");
     });
-    return new Response(new Uint8Array(bytes), { headers: { "content-type": "image/jpeg", "cache-control": "no-store" } });
+    return new Response(new Uint8Array(bytes), { headers: { "content-type": "image/jpeg", "cache-control": "private, max-age=30" } });
   } catch (e) {
     return fail(e);
   }

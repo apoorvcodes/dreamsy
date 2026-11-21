@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
+import sharp from "sharp";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const src = readFileSync(join(root, "components/Logo.tsx"), "utf8");
@@ -37,7 +38,7 @@ function mark(size, pad, bg, fg) {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" shape-rendering="crispEdges"><rect width="${size}" height="${size}" fill="${bg}"/><g fill="${fg}">${rects.join("")}</g></svg>`;
 }
 
-const shot = (file) => `data:image/jpeg;base64,${readFileSync(join(root, "public/games", file)).toString("base64")}`;
+const shot = (file) => `data:image/jpeg;base64,${readFileSync(join(root, "scripts/brand-shots", file)).toString("base64")}`;
 const logo = wordmark("#1a7ff0");
 
 const SPARK = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 5 5" shape-rendering="crispEdges" fill="#fff"><rect x="2" width="1" height="5"/><rect y="2" width="5" height="1"/></svg>`;
@@ -106,7 +107,9 @@ const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1200, height: 630 } });
 await page.setContent(og, { waitUntil: "networkidle" });
 await page.evaluate(() => document.fonts.ready);
-const ogPng = await page.screenshot({ type: "png" });
+const ogPng = await sharp(await page.screenshot({ type: "png" }))
+  .png({ palette: true, colours: 256, effort: 10, dither: 0.35 })
+  .toBuffer();
 writeFileSync(join(root, "app/opengraph-image.png"), ogPng);
 writeFileSync(join(root, "app/twitter-image.png"), ogPng);
 writeFileSync(join(root, "app/opengraph-image.alt.txt"), "Dreamsy: describe a game, then play it. A tiny engine and AI builder for 2D and 2.5D games, with real game screenshots.");

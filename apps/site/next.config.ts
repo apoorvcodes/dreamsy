@@ -5,6 +5,12 @@ const MCP = process.env.DREAMSY_MCP_ORIGIN ?? "http://127.0.0.1:8090";
 
 const config: NextConfig = {
   reactStrictMode: true,
+  async headers() {
+    return [{
+      source: "/games/:file(.*\\.webp)",
+      headers: [{ key: "Cache-Control", value: "public, max-age=86400" }],
+    }];
+  },
   async rewrites() {
     return [
       { source: "/mcp", destination: `${MCP}/mcp` },

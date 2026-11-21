@@ -4,7 +4,7 @@ import { SITE_DESCRIPTION, SITE_NAME, SITE_URL } from "@/lib/site";
 import "./globals.css";
 
 const pixel = Pixelify_Sans({ subsets: ["latin"], variable: "--font-pixel" });
-const body = Nunito({ subsets: ["latin"], variable: "--font-body" });
+const body = Nunito({ subsets: ["latin"], variable: "--font-body", preload: false });
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),

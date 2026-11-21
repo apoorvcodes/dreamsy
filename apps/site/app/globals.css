@@ -442,11 +442,16 @@ code {
 
 .device {
   display: block;
+  width: auto;
   height: min(600px, 72svh);
   aspect-ratio: 200 / 320;
   image-rendering: pixelated;
   cursor: pointer;
   animation: float 5s steps(2) infinite;
+}
+
+.hero[data-paused] :is(.device, .caret) {
+  animation-play-state: paused;
 }
 
 .prompt-window {

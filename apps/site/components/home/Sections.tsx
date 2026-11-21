@@ -150,7 +150,7 @@ export function EditorTeaser() {
         <Window title="editor" tone="ice">
           <h3>The Dreamsy editor</h3>
           <p>A prompt on the left, your game in the middle, files and settings on the right.</p>
-          <Link className="btn btn-sm" href="/editor">Open the editor</Link>
+          <Link className="btn btn-sm" href="/editor" prefetch={false}>Open the editor</Link>
         </Window>
         <Window title="mcp.json" tone="mist">
           <h3>Or use Claude Code</h3>

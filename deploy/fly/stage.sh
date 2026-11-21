@@ -6,6 +6,9 @@ A=deploy/fly/artifacts
 rm -rf "$A" && mkdir -p "$A/web/kits" "$A/seed/games"
 cp packages/mcp/prebuilt/linux-x64/dreamsy-tool "$A/dreamsy-tool"
 cp engine/build/web/dreamsy-player.html engine/build/web/dreamsy-player.js engine/build/web/dreamsy-player.wasm "$A/web/"
+if [ -f engine/build/web/dreamsy-player.data ]; then
+  cp engine/build/web/dreamsy-player.data "$A/web/"
+fi
 cp engine/build/web/kits/*.dpk "$A/web/kits/"
 if [ -d games/mine ]; then
   for g in games/mine/*/; do cp -R "${g%/}" "$A/seed/games/"; done

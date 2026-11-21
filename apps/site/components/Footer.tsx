@@ -14,7 +14,7 @@ export function Footer() {
           <h4>Make</h4>
           <Link href="/docs">Get started</Link>
           <Link href="/docs#mcp">Use with Claude Code</Link>
-          <Link href="/editor">Editor</Link>
+          <Link href="/editor" prefetch={false}>Editor</Link>
         </nav>
         <nav>
           <h4>Play</h4>

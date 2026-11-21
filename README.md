@@ -127,19 +127,19 @@ Every frame below is a real screenshot from the engine.
 
 <table>
   <tr>
-    <td width="33%"><img src="apps/site/public/games/cloud-hopper.jpg" alt="Cloud Hopper"><br><sub><b>Cloud Hopper</b> · 2.5D oblique platformer</sub></td>
-    <td width="33%"><img src="apps/site/public/games/summer-ride.jpg" alt="Summer Ride"><br><sub><b>Summer Ride</b> · side-scroller</sub></td>
-    <td width="33%"><img src="apps/site/public/games/street-racer.jpg" alt="City Rush"><br><sub><b>City Rush</b> · top-down racer</sub></td>
+    <td width="33%"><img src="apps/site/public/games/cloud-hopper-720.webp" alt="Cloud Hopper"><br><sub><b>Cloud Hopper</b> · 2.5D oblique platformer</sub></td>
+    <td width="33%"><img src="apps/site/public/games/summer-ride-720.webp" alt="Summer Ride"><br><sub><b>Summer Ride</b> · side-scroller</sub></td>
+    <td width="33%"><img src="apps/site/public/games/street-racer-720.webp" alt="City Rush"><br><sub><b>City Rush</b> · top-down racer</sub></td>
   </tr>
   <tr>
-    <td><img src="apps/site/public/games/kit-platformer.jpg" alt="Mossling"><br><sub><b>Mossling</b> · platformer kit</sub></td>
-    <td><img src="apps/site/public/games/kit-farming.jpg" alt="Mossbell Farm"><br><sub><b>Mossbell Farm</b> · farming kit</sub></td>
-    <td><img src="apps/site/public/games/kit-rpg.jpg" alt="Starfall Keepers"><br><sub><b>Starfall Keepers</b> · rpg kit</sub></td>
+    <td><img src="apps/site/public/games/kit-platformer-720.webp" alt="Mossling"><br><sub><b>Mossling</b> · platformer kit</sub></td>
+    <td><img src="apps/site/public/games/kit-farming-720.webp" alt="Mossbell Farm"><br><sub><b>Mossbell Farm</b> · farming kit</sub></td>
+    <td><img src="apps/site/public/games/kit-rpg-720.webp" alt="Starfall Keepers"><br><sub><b>Starfall Keepers</b> · rpg kit</sub></td>
   </tr>
   <tr>
-    <td><img src="apps/site/public/games/kit-topdown.jpg" alt="Tamsin of Wickhollow"><br><sub><b>Tamsin of Wickhollow</b> · topdown kit</sub></td>
-    <td><img src="apps/site/public/games/kit-tower-defense.jpg" alt="Bramble Watch"><br><sub><b>Bramble Watch</b> · tower-defense kit</sub></td>
-    <td><img src="apps/site/public/games/fort-raiders.jpg" alt="Village Raiders"><br><sub><b>Village Raiders</b> · base builder</sub></td>
+    <td><img src="apps/site/public/games/kit-topdown-720.webp" alt="Tamsin of Wickhollow"><br><sub><b>Tamsin of Wickhollow</b> · topdown kit</sub></td>
+    <td><img src="apps/site/public/games/kit-tower-defense-720.webp" alt="Bramble Watch"><br><sub><b>Bramble Watch</b> · tower-defense kit</sub></td>
+    <td><img src="apps/site/public/games/fort-raiders-720.webp" alt="Village Raiders"><br><sub><b>Village Raiders</b> · base builder</sub></td>
   </tr>
 </table>
 
