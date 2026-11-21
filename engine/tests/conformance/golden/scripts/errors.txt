@@ -1,13 +1,13 @@
 [info] later scripts still run
 [info] start
-[error] scripts/client/main.luau:12: script exceeded its execution budget (2000 ms)
+[error] scripts/client/main.luau:12: script exceeded its execution budget (100 ms)
 [error] scripts/client/syntax.luau:1: Expected identifier when parsing variable name, got '='
 [error] scripts/client/main.luau:2: attempt to index nil with 'x'
 [error] scripts/client/main.luau:6: custom failure
 [error] scripts/client/main.luau:7: table: 0x…
 [error] scripts/client/after.luau:3: script exceeded its execution budget (100 ms)
 [info] game continues after a budget kill
-error scripts/client/main.luau:12 x1: script exceeded its execution budget (2000 ms)
+error scripts/client/main.luau:12 x1: script exceeded its execution budget (100 ms)
 error scripts/client/syntax.luau:1 x1: Expected identifier when parsing variable name, got '='
 error scripts/client/main.luau:2 x6: attempt to index nil with 'x'
 error scripts/client/main.luau:6 x1: custom failure
