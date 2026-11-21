@@ -13,7 +13,7 @@ if (!process.env.DREAMSY_TOOL) {
   if (!existsSync(tool)) {
     process.stderr.write(
       `dreamsy-mcp: no engine binary for ${plat} yet (macOS and Linux are prebuilt; on Windows use WSL).\n` +
-        "Build it from source (https://github.com/apoorvcodes/dreamsy-mono, engine/README.md) and set DREAMSY_TOOL to its path.\n",
+        "Build it from source (https://github.com/apoorvcodes/dreamsy, engine/README.md) and set DREAMSY_TOOL to its path.\n",
     );
     process.exit(1);
   }

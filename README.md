@@ -8,6 +8,14 @@
 </p>
 
 <p align="center">
+  <a href="https://dreamsy.dev"><b>dreamsy.dev</b></a> ·
+  <a href="https://dreamsy.dev/editor">Editor</a> ·
+  <a href="https://dreamsy.dev/library">Library</a> ·
+  <a href="https://dreamsy.dev/play/macimf2uqk">Play Lanternkeeper</a> ·
+  <a href="https://dreamsy.dev/docs">Docs</a>
+</p>
+
+<p align="center">
   <a href="#-quick-start">Quick start</a> ·
   <a href="#-make-games-three-ways">Three ways to make games</a> ·
   <a href="#-gallery">Gallery</a> ·
@@ -22,6 +30,7 @@
   <img alt="platforms" src="https://img.shields.io/badge/runs%20on-iOS%20·%20Android%20·%20web-1a7ff0?style=flat-square">
   <img alt="mcp" src="https://img.shields.io/badge/MCP-npx%20dreamsy--mcp-1a7ff0?style=flat-square">
   <img alt="license" src="https://img.shields.io/badge/license-PolyForm%20Noncommercial-0f5ccc?style=flat-square">
+  <a href="https://github.com/apoorvcodes/dreamsy/stargazers"><img alt="stars" src="https://img.shields.io/github/stars/apoorvcodes/dreamsy?style=flat-square&color=1a7ff0"></a>
 </p>
 
 ---
@@ -48,9 +57,12 @@ Dreamsy is two things that fit together:
 
 ## ✦ Quick start
 
-You need Node with pnpm, CMake and a C++20 compiler.
+Just want to make a game? Open **[dreamsy.dev/editor](https://dreamsy.dev/editor)**, or add
+**`https://dreamsy.dev/mcp`** to ChatGPT or Claude as a custom connector. To build from source you need Node with pnpm,
+CMake and a C++20 compiler.
 
 ```sh
+git clone https://github.com/apoorvcodes/dreamsy && cd dreamsy
 pnpm install
 
 # the engine: dreamsy-tool (validate, pack, run, playtest)
