@@ -36,7 +36,7 @@ let inFlight = 0;
 mkdirSync(GAMES, { recursive: true });
 mkdirSync(META, { recursive: true });
 
-interface Meta { saveKey: string; cloudId?: string }
+interface Meta { saveKey: string; cloudId?: string; published?: string }
 
 const metaPath = (dir: string) => join(META, `${basename(dir)}.json`);
 function readMeta(dir: string): Meta | null {
@@ -79,7 +79,15 @@ function mcpServer(ip: string) {
         if (m) writeMeta(dir, { ...m, cloudId });
       },
     },
-    remote: { newGameId: (name) => newGameId(ip, name), touch },
+    remote: {
+      newGameId: (name) => newGameId(ip, name),
+      touch,
+      published: (dir) => readMeta(dir)?.published ?? null,
+      markPublished: (dir, slug) => {
+        const m = readMeta(dir);
+        if (m) writeMeta(dir, { ...m, published: slug });
+      },
+    },
   });
 }
 
@@ -91,6 +99,7 @@ export async function sweep(now = Date.now()) {
   for (const id of await readdir(GAMES).catch(() => [] as string[])) {
     const st = await stat(metaPath(id)).catch(() => null);
     if (st && now - st.mtimeMs <= GAME_TTL_MS) continue;
+    // Published games live on in the library; the working copy here can go.
     await rm(join(GAMES, id), { recursive: true, force: true }).catch(() => undefined);
     await rm(metaPath(id), { force: true }).catch(() => undefined);
   }

@@ -2874,3 +2874,46 @@ pre.code {
   font-size: 20px;
   color: var(--ink-deep);
 }
+
+/* published games are final */
+.locked {
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+  padding: 16px 18px;
+  border-top: 2px solid var(--ink);
+  background: var(--mist);
+  color: var(--ink-soft);
+}
+.locked strong {
+  color: var(--ink-deep);
+}
+
+/* library tiles: the picture plays the game */
+.lib-cover {
+  position: relative;
+  display: block;
+}
+.lib-play {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 34px;
+  color: var(--paper);
+  text-shadow: 0 2px 0 var(--ink-deep);
+  background: rgba(15, 92, 204, 0.25);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.lib-cover:hover .lib-play,
+.lib-cover:focus-visible .lib-play {
+  opacity: 1;
+}
+@media (hover: none) {
+  .lib-play { opacity: 0.85; background: none; }
+}
+.lib-play-btn {
+  padding: 6px 14px;
+  font-size: 15px;
+}

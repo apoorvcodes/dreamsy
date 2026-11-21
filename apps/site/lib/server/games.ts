@@ -31,10 +31,18 @@ export async function saveHistory(id: string, builds: BuildRecord[]) {
 }
 
 export async function meta(id: string) {
-  return readJson(join(dataDir(id), "meta.json"), {} as { name?: string; created?: number; from?: { slug: string; name: string; author: string } });
+  return readJson(join(dataDir(id), "meta.json"), {} as GameMeta);
 }
 
-export async function setMeta(id: string, patch: { from?: { slug: string; name: string; author: string } }) {
+interface GameMeta {
+  name?: string;
+  created?: number;
+  from?: { slug: string; name: string; author: string };
+  /** Library slug once published (published games are read-only), null when known to be unpublished. */
+  published?: string | null;
+}
+
+export async function setMeta(id: string, patch: Pick<GameMeta, "from" | "published">) {
   await mkdir(dataDir(id), { recursive: true });
   await writeFile(join(dataDir(id), "meta.json"), JSON.stringify({ ...(await meta(id)), ...patch }));
 }

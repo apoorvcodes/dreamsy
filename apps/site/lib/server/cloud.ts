@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { createGame, setMeta, snapshot } from "./games";
+import { createGame, meta, setMeta, snapshot } from "./games";
 import { dataDir, gameDir, HttpError } from "./paths";
 import { tool } from "./tool";
 
@@ -139,16 +139,29 @@ export async function cloudStatus(id: string) {
   }
 }
 
-export async function publishGame(id: string, info: { author?: string; link?: string; email?: string; remix?: boolean }) {
-  const saved = await syncGame(id, "publish");
-  if (!saved) throw new HttpError(503, "Cloud is turned off");
-  return call<{ slug: string; version: number }>(`/v1/games/${saved.cloudId}/publish`, { method: "POST", body: JSON.stringify(info), headers: { "content-type": "application/json" } });
+/** The library slug if this game is published. Cached in its meta; unknown when the cloud can't be reached. */
+export async function publishedSlug(id: string): Promise<string | null> {
+  const m = await meta(id);
+  if (m.published !== undefined) return m.published;
+  const status = await cloudStatus(id).catch(() => null);
+  if (!status) return null;
+  const slug = status.publication?.slug ?? null;
+  await setMeta(id, { published: slug });
+  return slug;
 }
 
-export async function unpublishGame(id: string) {
-  const cloudId = await linkedCloudId(id);
-  if (!cloudId) return;
-  await call(`/v1/games/${cloudId}/publish`, { method: "DELETE" });
+/** Published games are finished: the editor is shared, so changing one means remixing it. */
+export async function assertEditable(id: string) {
+  if (await publishedSlug(id)) throw new HttpError(409, "This game is published, so it's read-only. Remix it to make changes.");
+}
+
+export async function publishGame(id: string, info: { author?: string; link?: string; email?: string; remix?: boolean }) {
+  await assertEditable(id);
+  const saved = await syncGame(id, "publish");
+  if (!saved) throw new HttpError(503, "Cloud is turned off");
+  const pub = await call<{ slug: string; version: number }>(`/v1/games/${saved.cloudId}/publish`, { method: "POST", body: JSON.stringify(info), headers: { "content-type": "application/json" } });
+  await setMeta(id, { published: pub.slug });
+  return pub;
 }
 
 export interface LibraryGame {

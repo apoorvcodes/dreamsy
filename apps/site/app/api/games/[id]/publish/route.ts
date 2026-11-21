@@ -1,5 +1,5 @@
 import { activeRun } from "@/lib/server/builds";
-import { cloudStatus, publishGame, unpublishGame } from "@/lib/server/cloud";
+import { cloudStatus, publishGame } from "@/lib/server/cloud";
 import { fail, gameDir, HttpError } from "@/lib/server/paths";
 
 export const runtime = "nodejs";
@@ -30,13 +30,6 @@ export async function POST(req: Request, { params }: Ctx) {
   }
 }
 
-export async function DELETE(_req: Request, { params }: Ctx) {
-  try {
-    const { id } = await params;
-    gameDir(id);
-    await unpublishGame(id);
-    return Response.json(await cloudStatus(id));
-  } catch (e) {
-    return fail(e);
-  }
+export async function DELETE() {
+  return fail(new HttpError(403, "Published games stay in the library. Remix it to make a new version."));
 }
