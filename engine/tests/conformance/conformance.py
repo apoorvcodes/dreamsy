@@ -244,8 +244,7 @@ def main():
         mutants = make_mutants(tmp)
         dirs = real + mutants
 
-        pnpm = shutil.which("pnpm") or "pnpm"
-        ts_out = subprocess.run([pnpm, "exec", "tsx", str(ROOT / "engine/tests/conformance/ts_validate.mts"), *map(str, dirs)],
+        ts_out = subprocess.run(["node", "--import", "tsx", str(ROOT / "engine/tests/conformance/ts_validate.mts"), *map(str, dirs)],
                                 cwd=ROOT / "format", capture_output=True, text=True)
         if ts_out.returncode != 0:
             print(ts_out.stderr)
