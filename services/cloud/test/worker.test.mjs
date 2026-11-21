@@ -104,9 +104,13 @@ test("save, version, publish, remix, report, unpublish", async () => {
   assert.equal((await call(`/v1/public/games/${slug}/play`, { method: "POST" })).status, 200);
   assert.equal((await call(`/v1/public/games/${slug}/report`, { method: "POST", ...jsonBody({ reason: "test" }) })).status, 200);
 
-  const again = await call(`/v1/games/${id}/publish`, { key: ALICE, method: "POST", ...jsonBody({ remix: false }) });
-  assert.equal(again.body.slug, slug);
-  assert.equal((await call(`/v1/public/games/${slug}/remix`, { key: BOB, method: "POST" })).status, 403);
+  // Published games are final.
+  assert.equal((await call(`/v1/games/${id}/publish`, { key: ALICE, method: "POST", ...jsonBody({ remix: false }) })).status, 409);
+
+  const closed = (await call("/v1/games", { key: ALICE, method: "POST", ...jsonBody({ name: "No Remix" }) })).body.id;
+  await call(`/v1/games/${closed}/versions`, { key: ALICE, method: "POST", body: pack });
+  const closedSlug = (await call(`/v1/games/${closed}/publish`, { key: ALICE, method: "POST", ...jsonBody({ remix: false }) })).body.slug;
+  assert.equal((await call(`/v1/public/games/${closedSlug}/remix`, { key: BOB, method: "POST" })).status, 403);
 
   assert.equal((await call(`/v1/games/${id}/publish`, { key: ALICE, method: "DELETE" })).status, 200);
   assert.equal((await call(`/v1/public/games/${slug}`)).status, 404);

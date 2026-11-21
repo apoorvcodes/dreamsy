@@ -11,7 +11,7 @@ type Tab = "mine" | "library";
 
 export function GamesHome() {
   const router = useRouter();
-  const [tab, setTab] = useState<Tab>("mine");
+  const [tab, setTab] = useState<Tab>("library");
   const [games, setGames] = useState<GameSummary[] | null>(null);
   const [cloud, setCloud] = useState<MineGame[] | null>(null);
   const [keys, setKeys] = useState<KeyStatus | null>(null);
@@ -70,11 +70,11 @@ export function GamesHome() {
       </div>
 
       <div className="home-tabs" role="tablist">
-        <button role="tab" aria-selected={tab === "mine"} className={tab === "mine" ? "on" : ""} onClick={() => setTab("mine")}>
-          Your games <span>{games?.length ?? "…"}</span>
-        </button>
         <button role="tab" aria-selected={tab === "library"} className={tab === "library" ? "on" : ""} onClick={() => setTab("library")}>
           Library <span>{libTotal ?? "…"}</span>
+        </button>
+        <button role="tab" aria-selected={tab === "mine"} className={tab === "mine" ? "on" : ""} onClick={() => setTab("mine")}>
+          Your games <span>{games?.length ?? "…"}</span>
         </button>
       </div>
 
@@ -231,7 +231,7 @@ function LibraryTab({ onOpened, onTotal }: { onOpened: (id: string) => void; onT
   return (
     <>
       <div className="library-head">
-        <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search games or creators" aria-label="Search the library" autoFocus />
+        <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search games or creators" aria-label="Search the library" />
         <span className="lib-total">
           <strong>{total}</strong> {query.trim() ? `match${total === 1 ? "" : "es"}` : `game${total === 1 ? "" : "s"} in the library`}
         </span>
@@ -246,7 +246,10 @@ function LibraryTab({ onOpened, onTotal }: { onOpened: (id: string) => void; onT
           {games.map((g) => (
             <li key={g.slug}>
               <div className="game-tile lib-tile">
-                <Cover src={g.hasThumb ? `/api/library/${g.slug}/thumb` : null} sprite={null} name={g.name} empty={false} />
+                <a href={`/play/${g.slug}`} className="lib-cover" aria-label={`Play ${g.name}`}>
+                  <Cover src={g.hasThumb ? `/api/library/${g.slug}/thumb` : null} sprite={null} name={g.name} empty={false} />
+                  <span className="lib-play" aria-hidden>▶</span>
+                </a>
                 <div className="tile-body">
                   <strong>{g.name}</strong>
                   <span>
@@ -254,7 +257,7 @@ function LibraryTab({ onOpened, onTotal }: { onOpened: (id: string) => void; onT
                     {g.plays ? ` · ${g.plays} ${g.plays === 1 ? "play" : "plays"}` : ""}
                   </span>
                   <div className="lib-actions">
-                    <a className="tool" href={`/play/${g.slug}`}>▶ Play</a>
+                    <a className="btn btn-sm lib-play-btn" href={`/play/${g.slug}`}>▶ Play</a>
                     <a className="tool" href={`/api/library/${g.slug}/download`}>Download .dpk</a>
                     <button
                       type="button"

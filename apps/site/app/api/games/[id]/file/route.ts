@@ -1,6 +1,6 @@
 import { extname } from "node:path";
 import { activeRun } from "@/lib/server/builds";
-import { syncGame } from "@/lib/server/cloud";
+import { assertEditable, syncGame } from "@/lib/server/cloud";
 import { readGameFile, writeGameFile } from "@/lib/server/games";
 import { fail, HttpError } from "@/lib/server/paths";
 
@@ -40,6 +40,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     if (activeRun(id)) throw new HttpError(409, "Wait for the current build to finish");
     const { path, content } = (await req.json()) as { path?: string; content?: string };
     if (!path || typeof content !== "string") throw new HttpError(400, "Missing path or content");
+    await assertEditable(id);
     await writeGameFile(id, path, content);
     const cloud = await syncGame(id, `Edited ${path}`).catch(() => null);
     return Response.json({ ok: true, cloud });

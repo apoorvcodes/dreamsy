@@ -70,8 +70,8 @@ export function PublishDialog({ id, name, open, onClose, onChange }: { id: strin
       </div>
       <p className="dialog-note">
         {pub
-          ? `“${name}” is in the Dreamsy library (version ${pub.version}${pub.plays ? `, ${pub.plays} plays` : ""}). Anyone can play it at the link below; publishing again updates it.`
-          : `Share “${name}” in the Dreamsy library so anyone can find it, download it and play it. Your name and link are public; your email is not.`}
+          ? `“${name}” is in the Dreamsy library (version ${pub.version}${pub.plays ? `, ${pub.plays} plays` : ""}). Anyone can play it at the link below. Published games are final: remix it to make changes.`
+          : `Share “${name}” in the Dreamsy library so anyone can find it, play it and remix it. Publish when it's finished: published games are final. Your name and link are public; your email is not.`}
       </p>
       {pub && (
         <p className="publish-link">
@@ -97,29 +97,8 @@ export function PublishDialog({ id, name, open, onClose, onChange }: { id: strin
         </label>
         {error && <p className="form-error">{error}</p>}
         <div className="dialog-foot">
-          {pub && (
-            <button
-              type="button"
-              className="btn btn-light btn-sm"
-              disabled={busy}
-              onClick={async () => {
-                setBusy(true);
-                try {
-                  const s = await api.unpublish(id);
-                  setStatus(s);
-                  onChange(s);
-                } catch (err) {
-                  setError((err as Error).message);
-                } finally {
-                  setBusy(false);
-                }
-              }}
-            >
-              Unpublish
-            </button>
-          )}
           <span className="spacer" />
-          <button type="submit" className="btn btn-sm" disabled={busy}>{busy ? "Publishing…" : pub ? "Update" : "Publish"}</button>
+          <button type="submit" className="btn btn-sm" disabled={busy}>{busy ? "Publishing…" : "Publish"}</button>
         </div>
       </form>
     </dialog>

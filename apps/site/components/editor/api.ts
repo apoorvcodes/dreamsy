@@ -61,7 +61,7 @@ export const api = {
   cloudStatus: (id: string) => call<CloudStatus>(`/api/games/${id}/publish`),
   publish: (id: string, info: { author: string; link: string; email: string; remix: boolean }) =>
     call<{ status: CloudStatus }>(`/api/games/${id}/publish`, { method: "POST", body: JSON.stringify(info) }),
-  unpublish: (id: string) => call<CloudStatus>(`/api/games/${id}/publish`, { method: "DELETE" }),
+  remix: (id: string) => call<{ id: string }>(`/api/games/${id}/remix`, { method: "POST" }),
   sync: (id: string) => call(`/api/games/${id}/sync`, { method: "POST" }),
   keys: () => call<KeyStatus>("/api/keys"),
   saveKey: (provider: Provider, key: string) => call<KeyStatus>("/api/keys", { method: "POST", body: JSON.stringify({ provider, key }) }),

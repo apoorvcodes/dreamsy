@@ -78,7 +78,13 @@ export interface ServerOptions {
   cloud: (dir: string) => CloudConfig | null;
   links: { get(dir: string): string | null; set(dir: string, gameId: string): void };
   /** Hosted: games are named by an unguessable id that create_game returns, and expire when unused. */
-  remote?: { newGameId(name: string): string; touch(dir: string): void };
+  remote?: {
+    newGameId(name: string): string;
+    touch(dir: string): void;
+    /** Library slug once published; published games are final (remix_game makes an editable copy). */
+    published(dir: string): string | null;
+    markPublished(dir: string, slug: string): void;
+  };
 }
 
 export function createServer(opts: ServerOptions): McpServer {
@@ -89,6 +95,10 @@ const load = async (path: string) => {
   const game = await loadIn(ROOT, path, remote);
   opts.remote?.touch(game.dir);
   return game;
+};
+const assertEditable = (dir: string) => {
+  const slug = opts.remote?.published(dir);
+  if (slug) throw new Error(`this game is published (${playUrl(slug)}), so it's final. Call remix_game to get an editable copy.`);
 };
 const INSTRUCTIONS = remote
   ? `Dreamsy builds 2D and 2.5D games that run in the Dreamsy C++ engine. You are the game designer and programmer; these tools are the engine, hosted at dreamsy.dev.
@@ -134,11 +144,12 @@ function guarded<A>(fn: (args: A) => Promise<Result>) {
   };
 }
 
-function editTool(tool: Tool, title: string) {
+function editTool(tool: Tool, title: string, writes = false) {
   const input = (tool.input as unknown as z.ZodObject).extend({ game: z.string().describe("Game folder, relative to the games directory.") });
   server.registerTool(tool.name, { title, description: tool.description, inputSchema: input.shape }, guarded(async (args: Record<string, unknown>) => {
     const { game, ...rest } = args as { game: string };
     const { dir, pkg } = await load(game);
+    if (writes) assertEditable(dir);
     const ws = new Workspace(pkg, disabledImages, async () => {}, new AbortController().signal, []);
     const out = await tool.run(tool.input.parse(rest), context(ws, await engine()));
     if (ws.pkg !== pkg) await save(dir, pkg, ws.pkg);
@@ -217,8 +228,8 @@ server.registerTool("game_outline", {
 
 editTool(readFiles, "Read game files");
 editTool(getEntities, "Read entities");
-editTool(applyOps, "Edit the game");
-editTool(drawSprite, "Draw a sprite");
+editTool(applyOps, "Edit the game", true);
+editTool(drawSprite, "Draw a sprite", true);
 
 server.registerTool("playtest", {
   title: "Playtest",
@@ -325,6 +336,7 @@ server.registerTool("publish_game", {
   },
 }, guarded(async ({ game, author, link, email, remix }) => {
   const { dir, pkg } = await load(game);
+  assertEditable(dir);
   const cfg = opts.cloud(dir);
   if (!cfg) return text("Cloud is off (DREAMSY_CLOUD=0); nothing published.", true);
   const gate = await finalGate(pkg, await engine());
@@ -332,8 +344,27 @@ server.registerTool("publish_game", {
   const saved = await saveToCloud(cfg, { gameId: opts.links.get(dir), name: gameName(pkg), pack: pkg.toPack(), label: "publish", thumbnail: await cover(pkg) });
   opts.links.set(dir, saved.gameId);
   const pub = await publishToCloud(cfg, saved.gameId, { author, link, email, remix });
-  return text(`Published "${gameName(pkg)}" in the Dreamsy library${author ? ` by ${author}` : ""} (version ${pub.version}).\nPlay and share it: ${playUrl(pub.slug)}\nGive the user this link. Publishing again updates it to the latest version.`);
+  opts.remote?.markPublished(dir, pub.slug);
+  return text(`Published "${gameName(pkg)}" in the Dreamsy library${author ? ` by ${author}` : ""}.\nPlay and share it: ${playUrl(pub.slug)}\nGive the user this link. The published game is final: to change it, remix_game makes an editable copy to publish as a new game.`);
 }));
+
+if (opts.remote) {
+  const hosted = opts.remote;
+  server.registerTool("remix_game", {
+    title: "Remix a game",
+    description: "Make an editable copy of a game (published games are final, so this is how to change one). Returns the new game's id; publish it as a new game when it's done.",
+    inputSchema: { game: z.string(), name: z.string().min(1).optional().describe("Name for the remix; default \"<name> remix\".") },
+    annotations: EDIT,
+  }, guarded(async ({ game, name }) => {
+    const { pkg } = await load(game);
+    const newName = name ?? `${gameName(pkg)} remix`;
+    const id = hosted.newGameId(newName);
+    const ws = new Workspace(pkg, disabledImages, async () => {}, new AbortController().signal, []);
+    const applied = ws.applyOps([{ op: "set_manifest", key: "name", value: newName }], "remix");
+    await (applied.applied ? ws.pkg : pkg).toDir(gameDir(id));
+    return text(`Remixed into a new game "${newName}". The game id is "${id}": pass exactly this as \`game\` to every other tool.`);
+  }));
+}
 
 server.registerPrompt("build_game", {
   title: "Build a game",

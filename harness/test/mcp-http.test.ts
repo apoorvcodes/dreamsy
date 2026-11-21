@@ -126,6 +126,22 @@ describe("hosted MCP (stateless Streamable HTTP)", () => {
     expect(pub.text).toContain("/play/lantern01");
   }, 120_000);
 
+  it("freezes published games; remix_game makes an editable copy", async () => {
+    const edit = { reason: "x", ops: [{ op: "set_manifest", key: "description", value: "changed" }] };
+    const blocked = await call("apply_ops", { game: id, ...edit });
+    expect(blocked.ok).toBe(false);
+    expect(blocked.text).toMatch(/published.*remix_game/s);
+    expect((await call("publish_game", { game: id })).ok).toBe(false);
+    expect((await call("game_outline", { game: id })).ok).toBe(true);
+
+    const remixed = await call("remix_game", { game: id });
+    expect(remixed.ok, remixed.text).toBe(true);
+    const copy = /game id is "([^"]+)"/.exec(remixed.text)?.[1] ?? "";
+    expect(copy).not.toBe(id);
+    expect((await call("game_outline", { game: copy })).text).toContain("Little Lantern remix");
+    expect((await call("apply_ops", { game: copy, ...edit })).ok).toBe(true);
+  }, 60_000);
+
   it("answers a tool call that skips initialize", async () => {
     const r = await post({ jsonrpc: "2.0", id: 7, method: "tools/call", params: { name: "game_outline", arguments: { game: id } } }, { "mcp-protocol-version": "2025-06-18" });
     expect(r.status).toBe(200);

@@ -65,6 +65,8 @@ machine (always on: ChatGPT gives up during a cold start); Next.js rewrites `/mc
   editor's `DREAMSY_SAVE_KEY`.
 - ChatGPT probes `server/discover` (MCP 2026-07-28) first; the server answers with a legacy 400 so it falls back to
   `initialize`. ChatGPT also needs tool annotations and rejects tuple (array-form `items`) schemas.
+- Published games are final (2026-11-20): `apply_ops`, `draw_sprite` and `publish_game` refuse them; `remix_game`
+  copies one into a new editable game id.
 - Limits: 20 new games per IP per day, 8 requests in flight, 8 MB per request (413 closes the connection); games
   unused for 24 h are deleted. Cloud uploads also hit the worker caps, and since they all come from the Fly machine's
   IP, the worker's per-IP daily upload cap is a global cap for hosted MCP.
@@ -76,6 +78,10 @@ The website (`apps/site`, Next.js) has an editor at `/editor` that builds games 
 
 - Games are folders in `games/mine` (or `DREAMSY_GAMES_DIR`); editor state (build history, versions as `.dpk`, thumbnail)
   lives in `<games>/.editor/<id>/`.
+- Published games are final (2026-11-20): the hosted editor is shared and has no accounts, so once a game is published
+  its build, file, rename, restore and publish routes answer 409 and the workspace offers Remix (a new editable copy
+  through the library's remix). The cloud worker enforces it too: a game publishes once. The dashboard opens on the
+  library, where a game's picture and its Play button open `/play/<slug>`.
 - A build is one `harness/src/cli/editor.ts` child process started by a Next route handler. Input `{ dir, prompt, images }`
   on stdin; output is JSON lines (`event` per progress event, then one `result`); on success the package replaces the
   folder's files. The model keys come only from `DREAMSY_EDITOR_{ANTHROPIC,OPENAI,GEMINI}_KEY` in the child's environment.

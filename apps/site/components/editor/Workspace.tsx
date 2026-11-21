@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { BuildEvent, BuildRecord, GameDetail, KeyStatus, StreamMessage } from "@/lib/editor-types";
 import { timeline } from "@/lib/timeline";
@@ -28,6 +29,7 @@ export function Workspace({ id }: { id: string }) {
   const [keysOpen, setKeysOpen] = useState(false);
   const [publishOpen, setPublishOpen] = useState(false);
   const [cloud, setCloud] = useState<CloudStatus | null>(null);
+  const published = cloud?.publication?.slug ?? null;
   const [live, setLive] = useState<{ buildId: string; events: BuildEvent[] } | null>(null);
   const [running, setRunning] = useState(false);
   const [stamp, setStamp] = useState(() => Date.now());
@@ -122,9 +124,14 @@ export function Workspace({ id }: { id: string }) {
         {game ? <GameName id={id} name={game.name} onSaved={refresh} /> : <span className="muted">Loading…</span>}
         <span className="spacer" />
         {cloud?.cloudId && <span className="cloud-chip" title={`${cloud.versions} versions saved to the Dreamsy cloud`}>☁ saved</span>}
-        <button type="button" className="btn btn-sm" disabled={!built || running} onClick={() => setPublishOpen(true)}>
-          {cloud?.publication ? "Published ✓" : "Publish"}
-        </button>
+        {published ? (
+          <>
+            <a className="btn btn-sm" href={`/play/${published}`}>▶ Play</a>
+            <RemixButton id={id} />
+          </>
+        ) : (
+          <button type="button" className="btn btn-sm" disabled={!built || running} onClick={() => setPublishOpen(true)}>Publish</button>
+        )}
         <button type="button" className={`btn btn-sm ${hasBuildKey(keys) ? "btn-light" : ""}`} onClick={() => setKeysOpen(true)}>
           {hasBuildKey(keys) ? "API keys" : "Add API key"}
         </button>
@@ -153,6 +160,13 @@ export function Workspace({ id }: { id: string }) {
               builds.map((b) => <BuildEntry key={b.id} build={b} events={live?.buildId === b.id ? live.events : b.events} live={live?.buildId === b.id} onView={(v) => { setViewing(v); setStamp(Date.now()); }} />)
             )}
           </div>
+          {published ? (
+            <div className="locked">
+              <strong>Published, so this game is final.</strong>
+              <span>It's in the library for everyone to play. To change it, remix it: you get an editable copy.</span>
+              <RemixButton id={id} />
+            </div>
+          ) : (
           <Composer
             text={draft}
             setText={setDraft}
@@ -164,6 +178,7 @@ export function Workspace({ id }: { id: string }) {
             onCancel={() => void api.cancel(id)}
             onSend={startBuild}
           />
+          )}
         </section>
 
         <aside className="ws-side">
@@ -499,5 +514,28 @@ function Versions({ game, viewing, running, onView, onRestore }: { game: GameDet
         </li>
       ))}
     </ul>
+  );
+}
+
+function RemixButton({ id }: { id: string }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  return (
+    <button
+      type="button"
+      className="btn btn-light btn-sm"
+      disabled={busy}
+      onClick={async () => {
+        setBusy(true);
+        try {
+          router.push(`/editor/${(await api.remix(id)).id}`);
+        } catch (e) {
+          alert((e as Error).message);
+          setBusy(false);
+        }
+      }}
+    >
+      {busy ? "Copying…" : "Remix"}
+    </button>
   );
 }

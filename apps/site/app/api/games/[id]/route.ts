@@ -1,4 +1,5 @@
 import { activeRun } from "@/lib/server/builds";
+import { assertEditable } from "@/lib/server/cloud";
 import { detail, rename } from "@/lib/server/games";
 import { fail } from "@/lib/server/paths";
 
@@ -23,6 +24,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
   try {
     const { id } = await params;
     const { name } = (await req.json()) as { name?: string };
+    await assertEditable(id);
     await rename(id, name ?? "");
     return Response.json({ ok: true });
   } catch (e) {

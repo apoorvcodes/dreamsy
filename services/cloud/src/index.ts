@@ -358,12 +358,13 @@ async function route(req: Request, env: Env): Promise<Response> {
       if (link && !/^https?:\/\/[^\s]+\.[^\s]+$/.test(link)) throw new HttpError(400, "Link must start with http:// or https://");
       if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new HttpError(400, "That email doesn't look right");
       const t = now();
+      // Published games are final: changing one means remixing it into a new game.
       const prev = await env.DB.prepare("SELECT slug FROM publications WHERE game = ?1").bind(game.id).first<{ slug: string }>();
-      const slug = prev?.slug ?? randomId(10);
+      if (prev) throw new HttpError(409, "Already published. Published games are final: remix it to publish changes as a new game.");
+      const slug = randomId(10);
       await env.DB.prepare(
         `INSERT INTO publications (game, slug, version, author, link, email, remix, published, updated)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)
-         ON CONFLICT(game) DO UPDATE SET version = ?3, author = ?4, link = ?5, email = ?6, remix = ?7, updated = ?8`,
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)`,
       )
         .bind(game.id, slug, version, author, link, email, body.remix === false ? 0 : 1, t)
         .run();
