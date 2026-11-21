@@ -7,7 +7,7 @@ ENV NEXT_TELEMETRY_DISABLED=1 \
 RUN npm i -g pnpm@10.4.1
 
 COPY . .
-RUN printf 'packages:\n  - harness\n  - format\n  - apps/site\n' > pnpm-workspace.yaml \
+RUN printf 'packages:\n  - harness\n  - format\n  - services/api\n  - apps/site\n' > pnpm-workspace.yaml \
  && pnpm install --no-frozen-lockfile --filter @dreamsy/site... --filter @dreamsy/harness... \
  && mkdir -p engine/build/release engine/build/web \
  && cp deploy/fly/artifacts/dreamsy-tool engine/build/release/dreamsy-tool \

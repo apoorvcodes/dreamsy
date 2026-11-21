@@ -8,7 +8,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ slug: s
     const { slug } = await params;
     if (!/^[a-z0-9]{4,32}$/.test(slug)) throw new HttpError(404, "No such game");
     const thumbnail = await publicThumbnail(slug);
-    return new Response(thumbnail.body, { headers: { "content-type": "image/jpeg", "cache-control": "public, max-age=300" } });
+    return new Response(thumbnail.body, { headers: { "content-type": thumbnail.headers.get("content-type") ?? "image/jpeg", "cache-control": "public, max-age=300" } });
   } catch (e) {
     return fail(e);
   }

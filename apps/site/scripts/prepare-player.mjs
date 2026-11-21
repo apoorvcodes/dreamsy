@@ -18,8 +18,10 @@ for (const file of files) {
     const html = bytes.toString("utf8");
     if (!/<\/title>/i.test(html)) throw new Error("The player shell is missing its title");
     // Preload in the iframe's document so Emscripten can reuse the fetch.
-    bytes = Buffer.from(html.replace(/<\/title>/i,
-      '</title><link rel="preload" as="fetch" href="./dreamsy-player.wasm" type="application/wasm" crossorigin>'));
+    if (!/<link\b[^>]*\brel="preload"[^>]*\bhref="(?:\.\/)?dreamsy-player\.wasm"/i.test(html)) {
+      bytes = Buffer.from(html.replace(/<\/title>/i,
+        '</title><link rel="preload" as="fetch" href="./dreamsy-player.wasm" type="application/wasm" crossorigin>'));
+    }
     await writeFile(join(dir, "dreamsy-player.preload.html"), bytes);
   }
   version.update(file).update("\0").update(createHash("sha256").update(bytes).digest());
