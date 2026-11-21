@@ -9,7 +9,7 @@ fi
 # Hosted MCP (/mcp); it must not see the editor's save key.
 mkdir -p /data/mcp
 (cd /app/harness && while true; do
-  env -u DREAMSY_SAVE_KEY DREAMSY_MCP_DIR=/data/mcp DREAMSY_MCP_PORT=8090 node --import tsx src/mcp/http.ts || true
+  env -u DREAMSY_SAVE_KEY DREAMSY_MCP_DIR=/data/mcp DREAMSY_MCP_HOST=127.0.0.1 DREAMSY_MCP_TRUST_FLY=1 DREAMSY_MCP_PORT=8090 node --import tsx src/mcp/http.ts || true
   echo "dreamsy mcp exited; restarting"
   sleep 2
 done) &
