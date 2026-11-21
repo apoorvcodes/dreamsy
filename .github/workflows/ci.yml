@@ -37,8 +37,9 @@ jobs:
           cmake --preset release -DDREAMSY_BUILD_PLAYER=OFF -DDREAMSY_BUILD_TESTS=OFF
           cmake --build --preset release --target dreamsy-tool
       - run: pnpm -r typecheck
-      - run: pnpm -r --filter '!@dreamsy/api' test
-      # The earlier platform's API tests run Postgres in-process (PGlite), which can exceed vitest's default 5 s / 10 s
-      # timeouts on a loaded machine, so they get more room here.
+      - run: pnpm -r --filter '!@dreamsy/api' --filter '!@dreamsy/harness' test
+      # API and harness tests run Postgres in-process (PGlite) and can exceed Vitest's default timeouts.
+      - name: harness test
+        run: pnpm -C harness exec vitest run --testTimeout 60000 --hookTimeout 60000
       - name: services/api test
         run: pnpm -C services/api exec vitest run --testTimeout 60000 --hookTimeout 60000

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { after, before, test } from "node:test";
+import { fileURLToPath } from "node:url";
 import { Miniflare } from "miniflare";
 
 const here = new URL(".", import.meta.url);
@@ -23,7 +24,7 @@ const jsonBody = (o) => ({ body: JSON.stringify(o), headers: { "content-type": "
 before(async () => {
   mf = new Miniflare({
     modules: true,
-    scriptPath: new URL("../.build/index.js", here).pathname,
+    scriptPath: fileURLToPath(new URL("../.build/index.js", here)),
     compatibilityDate: "2025-10-01",
     r2Buckets: ["GAMES"],
     d1Databases: ["DB"],

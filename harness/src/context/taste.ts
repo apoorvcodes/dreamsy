@@ -17,7 +17,7 @@ export interface TastePack {
 const ROOT = repoPath("taste") + "/";
 
 function parse(id: string, text: string): TastePack | null {
-  const m = text.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+  const m = text.replace(/\r\n/g, "\n").match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
   if (!m) return null;
   const meta: Record<string, string> = {};
   for (const line of m[1]!.split("\n")) {
