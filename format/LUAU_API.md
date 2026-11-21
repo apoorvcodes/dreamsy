@@ -4,8 +4,10 @@ The scripting surface every game script may use. The harness teaches this to Cla
 the engine (`engine/src/script`: the prelude `prelude.luau` + the C++ host) must implement exactly this. Change both together.
 
 Luau rules: `--!strict` recommended. Sandboxed — no `io`, `os` (except `os.clock`), `debug`,
-`loadstring`, `getfenv`/`setfenv`, filesystem or network. Scripts that run too long are killed
-(harness balance sims can raise the per-call budget: `Game.load(pkg, { budgetMs })` / `simulate(..., { budgetMs })`).
+`loadstring`, `getfenv`/`setfenv`, filesystem or network. A script's top-level code and the modules it loads
+share a 2,000 ms budget by default, and each callback gets 250 ms. Harness balance sims can raise the callback
+budget with `Game.load(pkg, { budgetMs })` or `simulate(..., { budgetMs })`, which also raises the load budget
+if `budgetMs` exceeds it.
 Reserved words can't be field or method names with dot syntax: `goto` (Luau), plus the Lua keywords
 (`end`, `then`, `local`, `function`, `repeat`, …) — use `t["goto"]` or pick another name (`goTo`, `moveTo`).
 

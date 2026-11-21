@@ -104,6 +104,8 @@ def update_golden(path, cpp_stdout):
 def run_both(tool, pkg, ticks, budget, plan="", dump="", suite="scripts", name=None):
     path = GOLDEN / suite / f"{name or Path(pkg).name}.txt"
     cpp_args = [tool, "run", str(pkg), "--ticks", str(ticks), "--seed", SEED, "--budget", budget]
+    if suite == "scripts":
+        cpp_args += ["--load-budget", SCRIPT_BUDGET]
     if plan:
         cpp_args += ["--input", plan]
     if dump:

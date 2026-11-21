@@ -5,7 +5,7 @@
 //   dreamsy-tool info <package>                summary + content hash
 //   dreamsy-tool pack <package> <out.dpk>      validate, then write a Dreamsy pack
 //   dreamsy-tool unpack <pack.dpk> <dir>       extract a pack into a directory
-//   dreamsy-tool run <package> [--ticks N] [--seed S] [--budget MS] [--input PLAN] [--dump SPEC] [--hash]
+//   dreamsy-tool run <package> [--ticks N] [--seed S] [--budget MS] [--load-budget MS] [--input PLAN] [--dump SPEC] [--hash]
 //                    [--view side|topdown|oblique|iso] [--height ID=H,...] [--zjump TICK:ID=VZ;...]
 //                                              run headless (see cmd_run)
 //   dreamsy-tool check <package> [--strict] [--json]   type-check scripts; exit 1 on errors
@@ -80,7 +80,7 @@ int usage() {
                "  dreamsy-tool info <package>\n"
                "  dreamsy-tool pack <package> <out.dpk>\n"
                "  dreamsy-tool unpack <pack.dpk> <dir>\n"
-               "  dreamsy-tool run <package> [--ticks N] [--seed S] [--budget MS] [--input PLAN] [--dump SPEC] [--hash]\n"
+               "  dreamsy-tool run <package> [--ticks N] [--seed S] [--budget MS] [--load-budget MS] [--input PLAN] [--dump SPEC] [--hash]\n"
                "                   [--view MODE] [--height ID=H,...] [--zjump TICK:ID=VZ;...]\n"
                "  dreamsy-tool check <package> [--strict] [--json] | --print-defs\n"
                "  dreamsy-tool playtest <package> [--timeline JSON|@file] [--seconds N] [--scene PATH] [--params JSON]\n"
@@ -354,7 +354,7 @@ void dump_entities(script::Host& host, int64_t tick, const std::vector<std::stri
 // that tick. With any of them, dumps add the entity's z.
 int cmd_run(int argc, char** argv) {
   if (argc < 3) return usage();
-  int64_t ticks = 120, seed = 1, budget = 250, dump_every = 0;
+  int64_t ticks = 120, seed = 1, budget = 250, load_budget = 2000, dump_every = 0;
   bool hash = false;
   std::optional<world::ViewMode> view;
   std::vector<std::pair<std::string, double>> heights;
@@ -415,7 +415,8 @@ int cmd_run(int argc, char** argv) {
       }
       continue;
     }
-    int64_t* target = flag == "--ticks" ? &ticks : flag == "--seed" ? &seed : flag == "--budget" ? &budget : nullptr;
+    int64_t* target = flag == "--ticks" ? &ticks : flag == "--seed" ? &seed : flag == "--budget" ? &budget
+                    : flag == "--load-budget" ? &load_budget : nullptr;
     if (!target || !parse_int(std::string(value).c_str(), 0, flag == "--seed" ? int64_t{0xffffffff} : 10000000, target)) return usage();
   }
   const bool with_z = view || !heights.empty() || !zjumps.empty();
@@ -433,6 +434,7 @@ int cmd_run(int argc, char** argv) {
   script::HostOptions opts;
   opts.seed = static_cast<uint32_t>(seed);
   opts.budget_ms = static_cast<double>(budget);
+  opts.load_budget_ms = static_cast<double>(load_budget);
   script::Host* host_ptr = nullptr;
   opts.clock = [&host_ptr] { return 1767225600.0 + (host_ptr ? host_ptr->time() : 0.0); };
   opts.on_log = [](const script::LogLine& l) { std::printf("[%s] %s\n", l.level.c_str(), l.text.c_str()); };

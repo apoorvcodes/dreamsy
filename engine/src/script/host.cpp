@@ -60,14 +60,15 @@ Status Host::init() {
 
   world_.view = view_for(scene_path_);
   new_physics();
-  vm_ = Vm::create({options_.memory_limit, options_.budget_ms});
+  vm_ = Vm::create({options_.memory_limit, options_.budget_ms, options_.load_budget_ms});
   lua_State* L = vm_->main();
   lua_pushlightuserdata(L, this);
   lua_pushcclosure(L, &Host::host_call, "host", 1);
   lua_setglobal(L, "__host");
 
   if (Status s = vm_->load(L, "=dreamsy", data::prelude()); !s) return Error{"prelude failed to compile: " + s.error()};
-  if (auto err = vm_->pcall(L, 0, 0)) return Error{"prelude failed: " + err->message + "\n" + err->traceback};
+  if (auto err = vm_->pcall(L, 0, 0, CallKind::Load))
+    return Error{"prelude failed: " + err->message + "\n" + err->traceback};
   lua_settop(L, 0);
   vm_->sandbox();
 
@@ -162,7 +163,7 @@ void Host::run_script(const std::string& path, world::EntityId owner) {
   setup_script_globals(T, owner, path);
   ScriptInst* prev = current_;
   current_ = script;
-  auto err = vm_->pcall(T, 0, 0);
+  auto err = vm_->pcall(T, 0, 0, CallKind::Load);
   current_ = prev;
   if (err) record_error(err->message, err->traceback, path);
   lua_settop(L, top);
@@ -273,7 +274,7 @@ void Host::require_module(lua_State* L, const std::string& from, const std::stri
     // Module top level belongs to the session: its onTick/timers/connections survive the requirer.
     ScriptInst* prev = current_;
     current_ = &session_inst_;
-    auto err = vm_->pcall(T, 0, 1);
+    auto err = vm_->pcall(T, 0, 1, CallKind::Load);
     current_ = prev;
     if (err) failure = err->message;
     else modules_[path] = lua_ref(T, -1);

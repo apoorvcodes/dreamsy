@@ -1,0 +1,2 @@
+# The runtime conformance test reads these files as data and prints their contents.
+/engine/tests/scripts/data_save/data/levels/*.txt text eol=lf

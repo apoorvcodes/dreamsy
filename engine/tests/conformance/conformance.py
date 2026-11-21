@@ -52,7 +52,7 @@ def put_js(files, path, value):
 
 
 def toml_edit(files, old, new):
-    text = files["dreamsy.toml"].decode()
+    text = files["dreamsy.toml"].decode().replace("\r\n", "\n")
     assert old in text, (old, text[:200])
     files["dreamsy.toml"] = text.replace(old, new, 1).encode()
 
@@ -244,7 +244,7 @@ def main():
         mutants = make_mutants(tmp)
         dirs = real + mutants
 
-        ts_out = subprocess.run(["npx", "tsx", str(ROOT / "engine/tests/conformance/ts_validate.mts"), *map(str, dirs)],
+        ts_out = subprocess.run(["node", "--import", "tsx", str(ROOT / "engine/tests/conformance/ts_validate.mts"), *map(str, dirs)],
                                 cwd=ROOT / "format", capture_output=True, text=True)
         if ts_out.returncode != 0:
             print(ts_out.stderr)

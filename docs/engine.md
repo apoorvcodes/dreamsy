@@ -325,8 +325,9 @@ The Luau API contract (`format/LUAU_API.md`) is unchanged: every kit and game ru
   script runs in its own sandbox thread.
 - **OPEN: fast vectors.** Luau's native `vector` type would make vector math allocation-free, but it can't tell
   `Vec2` from `Vec3` (`tostring`, prop encoding and type checks depend on that). Decide after profiling E3.
-- **Budgets.** Per-callback CPU deadline via the interrupt callback (a script stuck in a loop is killed with
-  a clear error, and `pcall` can't swallow it); memory cap per VM.
+- **Budgets.** A script's top-level chunk and the modules it loads share a 2,000 ms wall-clock budget by default,
+  while each callback gets 250 ms. Raising the callback budget above the load budget raises both.
+  The VM enforces deadlines through its interrupt callback and caps memory per VM.
 - **Errors developers and models can act on.** `scripts/client/player.luau:12: attempt to index nil with
   'position'` plus a stack trace with script paths. Errors in callbacks are reported once with the callback's
   origin.
