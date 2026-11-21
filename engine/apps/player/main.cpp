@@ -194,7 +194,12 @@ struct App {
   int frame_count = 0;
   bool ok = false;
   bool loading = false;  // web: waiting for ?pkg= / kit downloads
+#ifdef __EMSCRIPTEN__
+  std::shared_ptr<Bytes> package_bytes;
+  std::unique_ptr<pkg::Package> pending_package;
   std::map<std::string, std::shared_ptr<Bytes>> fetched_kits;
+  size_t kits_pending = 0;
+#endif
   double manual_elapsed = 0;  // manual mode: game time stepped since the last frame
   bool error_published = false;
   std::string load_error;  // the first reason the game didn't load (shown to the host app)
@@ -389,17 +394,18 @@ void hook_platform(play::PlatformUi& ui, bool tools) {
 #endif
 }
 
-// Validates the package and starts the game (or the --demo scene).
-bool start(App& app, pkg::Files files, const KitBytes& kit_bytes) {
+std::unique_ptr<pkg::Package> validate_package(App& app, pkg::Files files) {
   pkg::LoadResult loaded = pkg::load_package(std::move(files));
   for (const pkg::Issue& issue : loaded.issues) {
     if (issue.severity == pkg::Severity::Error) load_failed(app, "invalid package: " + pkg::format_issue(issue));
   }
-  if (!loaded.ok) {
-    load_failed(app, "invalid package");
-    return false;
-  }
-  app.package = std::shared_ptr<const pkg::Package>(std::move(loaded.package));
+  if (!loaded.ok) load_failed(app, "invalid package");
+  return std::move(loaded.package);
+}
+
+// Starts the validated package as a game (or the --demo scene).
+bool start(App& app, std::unique_ptr<pkg::Package> package, const KitBytes& kit_bytes) {
+  app.package = std::move(package);
   app.style = render::style_from_manifest(app.package->manifest);
   if (app.options.smooth) {
     app.style.nearest = false;
@@ -491,7 +497,8 @@ bool load(App& app) {
     load_failed(app, "can't open package " + name + ": " + files.error());
     return false;
   }
-  return start(app, std::move(files).value(), kit_from_disk);
+  auto package = validate_package(app, std::move(files).value());
+  return package && start(app, std::move(package), kit_from_disk);
 }
 
 void set_view(App& app, render::ViewMode v);
@@ -499,47 +506,39 @@ void finish_init(App& app);
 
 #ifdef __EMSCRIPTEN__
 // Web: embed.js downloads the package named in the query (it starts before the WASM is ready) and
-// hands it over with dreamsy_package_buffer + dreamsy_package_ready; then each kit the package enables
-// is fetched from <kits_url><kit>.dpk.
+// hands it over with dreamsy_package_buffer + dreamsy_package_ready. Fetch the enabled kits in
+// parallel, then load them in manifest dependency order in load_kits.
 struct Download {
   std::string kit;
 };
-std::shared_ptr<Bytes> g_package_bytes;
-std::vector<std::string> g_kits_to_fetch;
 
-void fetch_next(App& app);
+void finish_download(App& app) {
+  app.loading = false;
+  const auto fetched_kits = std::move(app.fetched_kits);
+  auto kit_bytes = [&fetched_kits](const std::string& kit) -> std::shared_ptr<Bytes> {
+    auto it = fetched_kits.find(kit);
+    return it == fetched_kits.end() ? nullptr : it->second;
+  };
+  if (start(app, std::move(app.pending_package), kit_bytes)) finish_init(app);
+}
 
 void on_kit_error(void* arg) {
   std::unique_ptr<Download> d(static_cast<Download*>(arg));
-  load_failed(*g_app, "can't download kit \"" + d->kit + "\"");
-  g_app->loading = false;
+  if (!g_app || !g_app->loading) return;
+  App& app = *g_app;
+  load_failed(app, "can't download kit \"" + d->kit + "\"");
+  app.loading = false;
+  app.pending_package.reset();
+  app.fetched_kits.clear();
 }
 
 void on_kit(void* arg, void* data, int size) {
   std::unique_ptr<Download> d(static_cast<Download*>(arg));
-  g_app->fetched_kits[d->kit] = std::make_shared<Bytes>(static_cast<uint8_t*>(data), static_cast<uint8_t*>(data) + size);
-  fetch_next(*g_app);
-}
-
-void fetch_next(App& app) {
-  if (!g_kits_to_fetch.empty()) {
-    std::string kit = g_kits_to_fetch.back();
-    g_kits_to_fetch.pop_back();
-    std::string url = app.options.kits_url + kit + ".dpk";
-    emscripten_async_wget_data(url.c_str(), new Download{kit}, on_kit, on_kit_error);
-    return;
-  }
-  app.loading = false;
-  auto files = open_package(app.options.package_source, g_package_bytes);
-  if (!files) {
-    load_failed(app, "can't open " + app.options.package_source + ": " + files.error());
-    return;
-  }
-  auto kit_bytes = [&app](const std::string& kit) -> std::shared_ptr<Bytes> {
-    auto it = app.fetched_kits.find(kit);
-    return it == app.fetched_kits.end() ? nullptr : it->second;
-  };
-  if (start(app, std::move(files).value(), kit_bytes)) finish_init(app);
+  if (!g_app || !g_app->loading) return;
+  App& app = *g_app;
+  const auto* bytes = static_cast<const uint8_t*>(data);
+  app.fetched_kits.emplace(std::move(d->kit), std::make_shared<Bytes>(bytes, bytes + size));
+  if (--app.kits_pending == 0) finish_download(app);
 }
 #endif
 
@@ -548,22 +547,35 @@ void fetch_next(App& app) {
 #ifdef __EMSCRIPTEN__
 // embed.js: room for the downloaded package (`size` bytes), filled from JavaScript.
 extern "C" EMSCRIPTEN_KEEPALIVE uint8_t* dreamsy_package_buffer(int size) {
-  g_package_bytes = std::make_shared<Bytes>(static_cast<size_t>(std::max(size, 0)));
-  return g_package_bytes->data();
+  g_app->package_bytes = std::make_shared<Bytes>(static_cast<size_t>(std::max(size, 0)));
+  return g_app->package_bytes->data();
 }
 
-// embed.js: the package is in the buffer. Peek at the manifest to learn which kits to fetch.
+// embed.js: the package is in the buffer. Keep the validated package while kits load.
 extern "C" EMSCRIPTEN_KEEPALIVE void dreamsy_package_ready() {
   App& app = *g_app;
-  auto files = open_package(app.options.package_source, g_package_bytes);
+  auto files = open_package(app.options.package_source, std::move(app.package_bytes));
   if (!files) {
     load_failed(app, "can't open " + app.options.package_source + ": " + files.error());
     app.loading = false;
     return;
   }
-  pkg::LoadResult peek = pkg::load_package(std::move(files).value());
-  if (peek.ok) g_kits_to_fetch = kits_of(peek.package->manifest);
-  fetch_next(app);
+  app.pending_package = validate_package(app, std::move(files).value());
+  if (!app.pending_package) {
+    app.loading = false;
+    return;
+  }
+  const auto kits = kits_of(app.pending_package->manifest);
+  if (kits.empty()) {
+    finish_download(app);
+    return;
+  }
+  app.kits_pending = kits.size();
+  for (const auto& kit : kits) {
+    const std::string url = app.options.kits_url + kit + ".dpk";
+    auto download = std::make_unique<Download>(Download{kit});
+    emscripten_async_wget_data(url.c_str(), download.release(), on_kit, on_kit_error);
+  }
 }
 
 // embed.js: the download failed (dreamsyHost.error says why).

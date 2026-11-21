@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -401,15 +403,9 @@ TEST_CASE("image: every SVG in games/ parses and draws something") {
   std::string failures;
   for (const auto& entry : fs::recursive_directory_iterator(kRoot + "/games")) {
     if (!entry.is_regular_file() || entry.path().extension() != ".svg") continue;
-    std::string text;
-    {
-      FILE* f = std::fopen(entry.path().c_str(), "rb");
-      REQUIRE(f);
-      char buf[4096];
-      size_t n = 0;
-      while ((n = std::fread(buf, 1, sizeof buf, f)) > 0) text.append(buf, n);
-      std::fclose(f);
-    }
+    std::ifstream file(entry.path(), std::ios::binary);
+    REQUIRE(file.good());
+    const std::string text(std::istreambuf_iterator<char>{file}, {});
     count++;
     auto svg = Svg::parse(text);
     if (!svg) {
