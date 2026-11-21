@@ -131,7 +131,7 @@ dreamsy-tool pack my-game my-game.dpk`}</Code>
           <section id="more">
             <h2>Read more</h2>
             <ul className="more">
-              <li><a href={`${GITHUB}/blob/main/DREAMSY.MD`}>DREAMSY.MD</a> · the overview and the map of the spec</li>
+              <li><a href={`${GITHUB}/blob/main/docs/README.md`}>docs/README.md</a> · the overview and the map of the spec</li>
               <li><a href={`${GITHUB}/blob/main/docs/format.md`}>docs/format.md</a> · the package format</li>
               <li><a href={`${GITHUB}/blob/main/docs/engine.md`}>docs/engine.md</a> · how the engine works</li>
               <li><a href={`${GITHUB}/blob/main/docs/harness.md`}>docs/harness.md</a> · how games get built</li>
