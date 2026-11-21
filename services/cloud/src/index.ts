@@ -256,16 +256,20 @@ function packResponse(body: BodyInit | null, hash: string, cache: string) {
   return new Response(body, { headers: { "content-type": "application/octet-stream", etag: `"${hash}"`, "cache-control": cache } });
 }
 
-async function cached(key: URL, ctx: ExecutionContext, load: () => Promise<Response>) {
+async function cached(key: URL, load: () => Promise<Response>, ctx?: ExecutionContext) {
   const cache = caches.default;
   const hit = await cache.match(key.href).catch(() => undefined);
   if (hit) return hit;
   const response = await load();
-  if (response.ok) ctx.waitUntil(cache.put(key.href, response.clone()).catch(() => undefined));
+  if (response.ok) {
+    const write = cache.put(key.href, response.clone()).catch(() => undefined);
+    if (ctx) ctx.waitUntil(write);
+    else await write;
+  }
   return response;
 }
 
-async function library(url: URL, env: Env, ctx: ExecutionContext) {
+async function library(url: URL, env: Env) {
   const rawBefore = Number(url.searchParams.get("before"));
   const before = Number.isSafeInteger(rawBefore) && rawBefore > 0 ? rawBefore : Number.MAX_SAFE_INTEGER;
   const q = text(url.searchParams.get("q"), 80).toLowerCase();
@@ -273,7 +277,7 @@ async function library(url: URL, env: Env, ctx: ExecutionContext) {
   const like = `%${q.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
   const key = new URL("/v1/public/games", url);
   key.search = new URLSearchParams({ before: String(before), q, limit: String(limit) }).toString();
-  return cached(key, ctx, async () => {
+  return cached(key, async () => {
     const recent = `WITH recent AS MATERIALIZED (
       SELECT * FROM publications WHERE hidden = 0 ORDER BY updated DESC LIMIT ${LIBRARY_WINDOW}
     )`;
@@ -313,18 +317,18 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
   }
 
   if (a === "public" && b === "games") {
-    if (!c && method === "GET") return library(url, env, ctx);
+    if (!c && method === "GET") return library(url, env);
     if (!c) throw new HttpError(405, "Method not allowed");
     if (e || !((method === "GET" && (!d || d === "package" || d === "thumb")) ||
       (method === "POST" && (d === "play" || d === "report" || d === "remix")))) throw new HttpError(404, "Not found");
     const p = await publication(env, c);
     if (!d && method === "GET") return json({ game: publicView(p) }, 200, { "cache-control": "public, max-age=30" });
     if (d === "package" && method === "GET") {
-      const pack = await cached(new URL(`/_cache/packs/${p.hash}`, url), ctx, async () => {
+      const pack = await cached(new URL(`/_cache/packs/${p.hash}`, url), async () => {
         const obj = await env.GAMES.get(`packs/${p.hash}.dpk`);
         if (!obj) throw new HttpError(404, "Package missing");
         return packResponse(obj.body, p.hash, "public, max-age=86400, immutable");
-      });
+      }, ctx);
       return packResponse(pack.body, p.hash, "public, max-age=60");
     }
     if (d === "thumb" && method === "GET") {
@@ -363,21 +367,26 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
 
   if (a !== "games") throw new HttpError(404, "Not found");
   const who = await owner(req);
-  const ip = method === "GET" ? "" : await ipHash(req);
-  const spender: Spender = { owner: who, ip: ip.slice(0, 24) };
   if (method !== "GET") {
     const valid = (!b && method === "POST") || (b && !c && (method === "PATCH" || method === "DELETE")) ||
       (b && c === "versions" && ((!d && method === "POST") || (d && e === "thumb" && method === "PUT"))) ||
       (b && c === "publish" && !d && (method === "POST" || method === "DELETE"));
     if (!valid) throw new HttpError(405, "Method not allowed");
+  }
+
+  const game = b ? await ownedGame(env, b, who) : null;
+  const takedown = method === "DELETE" && (!c || c === "publish");
+  const ip = method !== "GET" && !takedown ? await ipHash(req) : "";
+  const spender: Spender = { owner: who, ip: ip.slice(0, 24) };
+  if (method !== "GET" && !takedown) {
     const rules = mutationRules(env, who, ip);
-    if (!b) rules.push(hourly(`create:${who}`, 60));
+    if (!game) rules.push(hourly(`create:${who}`, 60));
     if (c === "versions" && !d) rules.push(hourly(`version:${who}`, 240));
-    if (c === "publish" && method === "POST") rules.push(hourly(`publish:${who}`, 30));
+    if (c === "publish") rules.push(hourly(`publish:${who}`, 30));
     await limit(env, rules);
   }
 
-  if (!b) {
+  if (!game) {
     if (method === "GET") {
       const rows = await env.DB.prepare(
         `SELECT g.id, g.name, g.created, g.updated, g.latest, g.remix_of, p.slug, v.thumb FROM games g
@@ -401,8 +410,6 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
     }
     throw new HttpError(405, "Method not allowed");
   }
-
-  const game = await ownedGame(env, b, who);
 
   if (!c) {
     if (method === "GET") {

@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { Miniflare } from "miniflare";
+import worker from "../.build/index.js";
 
 const here = new URL(".", import.meta.url);
 const pack = readFileSync(new URL("fixture.dpk", here));
@@ -14,7 +15,6 @@ const call = async (path, { key, method = "GET", body, headers = {} } = {}) => {
   const res = await mf.dispatchFetch(`http://cloud.test${path}`, {
     method,
     body,
-    ...(body instanceof ReadableStream ? { duplex: "half" } : {}),
     headers: { ...(key ? { authorization: `Bearer ${key}` } : {}), ...headers },
   });
   const type = res.headers.get("content-type") ?? "";
@@ -110,10 +110,25 @@ test("save, version, publish, remix, report, unpublish", async () => {
   assert.equal(again.body.slug, slug);
   assert.equal((await call(`/v1/public/games/${slug}/remix`, { key: BOB, method: "POST" })).status, 403);
 
-  assert.equal((await call(`/v1/games/${id}/publish`, { key: ALICE, method: "DELETE" })).status, 200);
-  assert.equal((await call(`/v1/public/games/${slug}`)).status, 404);
+  const db = await mf.getD1Database("DB");
+  const globalQuota = db.prepare("SELECT count FROM rate WHERE bucket = 'global:mutations'");
+  const setQuota = (count) => db.prepare("UPDATE rate SET count = ?1 WHERE bucket = 'global:mutations'").bind(count).run();
+  const { count } = await globalQuota.first();
+  assert.equal((await call(`/v1/games/${id}/publish`, { key: BOB, method: "POST" })).status, 404);
+  assert.equal((await call(`/v1/games/${id}/publish`, { method: "DELETE" })).status, 401);
+  assert.equal((await globalQuota.first()).count, count);
+  await setQuota(20000);
+  try {
+    assert.equal((await call(`/v1/games/${id}/publish`, { key: ALICE, method: "POST" })).status, 429);
+    assert.equal((await call(`/v1/games/${id}/publish`, { key: BOB, method: "DELETE" })).status, 404);
+    assert.equal((await call(`/v1/games/${id}/publish`, { key: ALICE, method: "DELETE" })).status, 200);
+    assert.equal((await call(`/v1/public/games/${slug}`)).status, 404);
+    assert.equal((await call(`/v1/games/${id}`, { key: ALICE, method: "DELETE" })).status, 200);
+    assert.equal((await globalQuota.first()).count, 20000);
+  } finally {
+    await setQuota(count);
+  }
 
-  assert.equal((await call(`/v1/games/${id}`, { key: ALICE, method: "DELETE" })).status, 200);
   assert.equal((await call(`/v1/games/${id}`, { key: ALICE })).status, 404);
 });
 
@@ -183,7 +198,7 @@ test("deduplicated versions get distinct version numbers and still consume mutat
   assert.equal(after.count - before.count, 3);
   await db.prepare("UPDATE rate SET count = 20000 WHERE bucket = 'global:mutations'").run();
   try {
-    assert.equal((await call(path, { key: ALICE, method: "POST", body: pack })).status, 429);
+    assert.equal((await call(path, { key: ALICE, method: "POST" })).status, 429);
     assert.equal((await db.prepare("SELECT count FROM rate WHERE bucket = 'global:mutations'").first()).count, 20000);
   } finally {
     await db.prepare("UPDATE rate SET count = ?1 WHERE bucket = 'global:mutations'").bind(after.count).run();
@@ -200,12 +215,23 @@ test("rejects oversized bodies and invalid labels", async () => {
       controller.close();
     },
   });
-  assert.equal((await call("/v1/games", { key: ALICE, method: "POST", body: stream(20_000), headers: { "content-type": "application/json" } })).status, 413);
+  // A cancelled inbound stream can reset workerd's loopback socket before dispatchFetch
+  // receives the 413. Exercise the same bundled handler with an in-process request.
+  const env = { DB: await mf.getD1Database("DB"), ALLOWED_ORIGINS: "", MAX_PACK_BYTES: "8000000" };
+  const oversized = async (path, method, length, type) => {
+    const response = await worker.fetch(new Request(`http://cloud.test${path}`, {
+      method, body: stream(length), duplex: "half",
+      headers: { authorization: `Bearer ${ALICE}`, "content-type": type },
+    }), env, {});
+    assert.equal(response.status, 413);
+    assert.match((await response.json()).error, /too large/i);
+  };
+  await oversized("/v1/games", "POST", 20_000, "application/json");
   const path = `/v1/games/${id}/versions`;
-  assert.equal((await call(path, { key: ALICE, method: "POST", body: stream(8_100_000) })).status, 413);
-  assert.equal((await call(path, { key: ALICE, method: "POST", body: pack, headers: { "x-dreamsy-label": "%" } })).status, 400);
+  await oversized(path, "POST", 8_100_000, "application/octet-stream");
+  assert.equal((await call(path, { key: ALICE, method: "POST", headers: { "x-dreamsy-label": "%" } })).status, 400);
   assert.equal((await call(path, { key: ALICE, method: "POST", body: pack })).status, 201);
-  assert.equal((await call(`${path}/0/thumb`, { key: ALICE, method: "PUT", body: stream(601_000), headers: { "content-type": "image/jpeg" } })).status, 413);
+  await oversized(`${path}/0/thumb`, "PUT", 601_000, "image/jpeg");
 });
 
 test("global daily byte quota refuses new objects without blocking deduplicated versions", async () => {
